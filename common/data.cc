@@ -37,6 +37,12 @@ public:
   u64 _ack_bit_map;
   u64 _timestamp_ns;
 
+  Header(PacketType type, u32 conn_id, u64 seq, u64 ack, u64 ack_bit_map,
+         u64 timestamp_ns)
+      : _type(static_cast<u8>(type)), _conn_id(conn_id), _seq(seq),
+        _last_contiguous_ack(ack), _ack_bit_map(ack_bit_map),
+        _timestamp_ns(timestamp_ns) {}
+
   Header(PacketType type, u32 conn_id, u64 seq, u64 ack, u64 ack_bit_map)
       : _type(static_cast<u8>(type)), _conn_id(conn_id), _seq(seq),
         _last_contiguous_ack(ack), _ack_bit_map(ack_bit_map),
@@ -115,6 +121,12 @@ class Connection {
                reinterpret_cast<const u8 *>(&v) + sizeof(v));
   }
 
+  template <typename T>
+  void deserialize_multi_byte(const T &v, std::vector<u8> &buf) {
+    buf.insert(buf.end(), reinterpret_cast<const u8 *>(&v),
+               reinterpret_cast<const u8 *>(&v) + sizeof(v));
+  }
+
 public:
   static Connection &init_handshake(Header init_header) {
     try {
@@ -180,7 +192,7 @@ public:
 
     buf.reserve(1400); // Avoid too many memory reallocations for the push_backs
 
-    // Encode header (296 bytes)
+    // Encode header (296 bits == 40 bytes)
 
     buf.push_back(p->header._type); // Single byte, no need to reorder
 
@@ -194,7 +206,7 @@ public:
 
     serialize_multi_byte(htobe64(p->header._timestamp_ns), buf);
 
-    // We have 1104 bytes left for the rest of the payload
+    // We have 1360 bytes left for the rest of the payload
     serialize_multi_byte(htobe64(p->payload.size()), buf);
 
     buf.insert(buf.end(), p->payload.begin(), p->payload.end());
@@ -204,6 +216,73 @@ public:
            sizeof(_remote_addr));
 
     _send_queue.pop();
+  }
+
+  u16 deserialize_all(
+      int sockfd,
+      std::array<u8, 1400>
+          &buf) { // ONLY NEEDS TO RETURN U16 SINCE ARR BOUNDS ARENT THAT LARGE
+    socklen_t len;
+    u32 bytes_read =
+        recvfrom(_sockfd, buf.data(), buf.size(), 0,
+                 reinterpret_cast<struct sockaddr *>(&_remote_addr), &len);
+    if (bytes_read > 0) {
+      return bytes_read;
+    } else {
+      throw std::runtime_error("could not read bytes for packet data");
+    }
+  }
+
+  Packet receive_packet() {
+    std::array<u8, 1400> buf;
+    u16 packet_size = deserialize_all(_sockfd, buf);
+
+    u8 *ptr = buf.data();
+
+    u8 type = *ptr;
+    ++ptr;
+
+    u32 conn_id;
+    u64 seq;
+    u64 last_contiguous_ack;
+    u64 ack_bit_map;
+    u64 timestamp_ns;
+
+    std::memcpy(&conn_id, ptr, sizeof(conn_id));
+    ptr += sizeof(conn_id);
+
+    std::memcpy(&seq, ptr, sizeof(seq));
+    ptr += sizeof(seq);
+
+    std::memcpy(&last_contiguous_ack, ptr, sizeof(last_contiguous_ack));
+    ptr += sizeof(last_contiguous_ack);
+
+    std::memcpy(&ack_bit_map, ptr, sizeof(ack_bit_map));
+    ptr += sizeof(ack_bit_map);
+
+    std::memcpy(&timestamp_ns, ptr, sizeof(timestamp_ns));
+    ptr += sizeof(timestamp_ns);
+
+    conn_id = ntohl(conn_id);
+    seq = be64toh(seq);
+    last_contiguous_ack = be64toh(last_contiguous_ack);
+    ack_bit_map = be64toh(ack_bit_map);
+    timestamp_ns = be64toh(timestamp_ns);
+
+    Header h = Header(static_cast<PacketType>(type), conn_id, seq,
+                      last_contiguous_ack, ack_bit_map, timestamp_ns);
+
+
+READ THE SIZE FIRST
+
+	std::vector<u8> slice(buf.begin() + sizeof(Header, )
+
+  }
+
+  void listen() {
+    for (;;) {
+      Packet p = receive_packet();
+    }
   }
 };
 
