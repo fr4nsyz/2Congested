@@ -1,12 +1,15 @@
+#include <arpa/inet.h>
 #include <chrono>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <endian.h>
 #include <exception>
 #include <format>
 #include <memory>
 #include <queue>
 #include <stdexcept>
+#include <sys/socket.h>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -27,23 +30,25 @@ enum class PacketType : uint8_t {
 };
 
 class Header {
-  PacketType _type;
+public:
+  u8 _type;
   u32 _conn_id;
   u64 _seq;
   u64 _last_contiguous_ack;
-  u64 _ack_bits;
+  u64 _ack_bit_map;
   u64 _timestamp_ns;
 
-public:
-  Header(PacketType type, u32 conn_id, u64 seq, u64 ack, u64 ack_bits)
-      : _type(type), _conn_id(conn_id), _seq(seq), _last_contiguous_ack(ack),
-        _ack_bits(ack_bits),
+  Header(PacketType type, u32 conn_id, u64 seq, u64 ack, u64 ack_bit_map)
+      : _type(static_cast<u8>(type)), _conn_id(conn_id), _seq(seq),
+        _last_contiguous_ack(ack), _ack_bit_map(ack_bit_map),
         _timestamp_ns(std::chrono::duration_cast<std::chrono::nanoseconds>(
                           std::chrono::steady_clock::now().time_since_epoch())
                           .count()) {}
 };
 
 class Packet {
+  // NOTE: to stay within the limits of the MTU which for ethernet is 1500
+  // bytes, keep Packet object size to <1400 bytes ideally.
 public:
   Header header;
   std::vector<u8> payload;
@@ -85,7 +90,7 @@ class Connection {
           // from the server
         };
 
-  u64 build_ack_bits() {
+  u64 build_ack_bit_map() {
     u64 ONE_ULL = 1;
     u64 bits = 0;
     for (const auto seq : _received_ooo_packet_nums) {
@@ -102,10 +107,16 @@ class Connection {
     return bits;
   }
 
+  template <typename T> void serialize_multi_byte(T v, std::vector<u8> &buf) {
+    buf.insert(buf.end(), reinterpret_cast<u8 *>(&v),
+               reinterpret_cast<u8 *>(&v) + sizeof(v));
+  }
+
 public:
   static Connection &init_handshake(Header init_header) {
     try {
       static Connection c;
+      // Create sockfd, set it in this object
       // Talk to server, ask for conn_id
       std::vector<u8> config_info = {
           0}; // Future encryption things will be here I think, and maybe other
@@ -121,16 +132,47 @@ public:
   }
 
   void create_and_queue_for_sending(const std::vector<u8> &data) {
+    // NOTE THIS ASSUMES THE CALLER KNOWS THE VECTOR data IS WITHIN THE UDP
+    // DATAGRAM PACKET SIZE TO ENSURE SENIDNG IS WITHIN BOUNDS OF MTU
 
     auto packet = std::make_shared<Packet>(
         data, Header(PacketType::DATA, _conn_id, _seq_to_send,
-                     _last_contiguous_ack, build_ack_bits()));
+                     _last_contiguous_ack, build_ack_bit_map()));
 
     _send_queue.push(packet);
     ++_seq_to_send;
   }
 
-  void flush_send_queue() {}
+  void flush_send_queue() {
+    auto p = _send_queue.front();
+
+    std::vector<u8> buf;
+
+    buf.reserve(1400); // Avoid too many memory reallocations for the push_backs
+
+    // Encode header (296 bytes)
+
+    buf.push_back(p->header._type); // Single byte, no need to reorder
+
+    serialize_multi_byte(htonl(p->header._conn_id), buf);
+
+    serialize_multi_byte(htobe64(p->header._seq), buf);
+
+    serialize_multi_byte(htobe64(p->header._last_contiguous_ack), buf);
+
+    serialize_multi_byte(htobe64(p->header._ack_bit_map), buf);
+
+    serialize_multi_byte(htobe64(p->header._timestamp_ns), buf);
+
+    // We have 1104 bytes left for the rest of the payload
+    serialize_multi_byte(htobe64(buf.size()), buf);
+
+    buf.insert(buf.end(), p->payload.begin(), p->payload.end());
+
+    // Send logic will be here, will do later
+
+    _send_queue.pop();
+  }
 };
 
 // bytes_in_flight ≤ cwnd must always hold
