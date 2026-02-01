@@ -3,6 +3,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <endian.h>
 #include <exception>
 #include <format>
@@ -18,8 +19,6 @@ using u32 = uint32_t;
 using u16 = uint16_t;
 using u8 = uint8_t;
 using u64 = uint64_t;
-
-const u32 MTU = 1200;
 
 enum class PacketType : uint8_t {
   HANDSHAKE = 0,
@@ -62,6 +61,9 @@ class Connection {
 
   // Socket Things
   int _sockfd;
+  struct sockaddr_in _local_addr;
+  struct sockaddr_in _remote_addr;
+  u16 _remote_port;
 
   // Connection Things
   u32 _conn_id;
@@ -107,9 +109,10 @@ class Connection {
     return bits;
   }
 
-  template <typename T> void serialize_multi_byte(T v, std::vector<u8> &buf) {
-    buf.insert(buf.end(), reinterpret_cast<u8 *>(&v),
-               reinterpret_cast<u8 *>(&v) + sizeof(v));
+  template <typename T>
+  void serialize_multi_byte(const T &v, std::vector<u8> &buf) {
+    buf.insert(buf.end(), reinterpret_cast<const u8 *>(&v),
+               reinterpret_cast<const u8 *>(&v) + sizeof(v));
   }
 
 public:
@@ -117,6 +120,32 @@ public:
     try {
       static Connection c;
       // Create sockfd, set it in this object
+      c._sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+      if (c._sockfd < 0) {
+        throw std::runtime_error(
+            "[FATAL] socket could not be created! c._sockfd was error code");
+      }
+
+      struct sockaddr_in local_addr;
+      u16 local_port = 5000;
+
+      memset(&local_addr, 0, sizeof(local_addr));
+      local_addr.sin_family = AF_INET;
+      local_addr.sin_addr.s_addr = INADDR_ANY; // listen on all interfaces
+      local_addr.sin_port = htons(local_port); // your port number
+
+      if (bind(c._sockfd, (struct sockaddr *)&local_addr, sizeof(local_addr)) <
+          0) {
+        throw std::runtime_error("[FATAL] could not bind socket");
+      }
+
+      u16 remote_port = 5001;
+      memset(&c._remote_addr, 0, sizeof(c._remote_addr));
+      c._remote_addr.sin_family = AF_INET;
+      c._remote_addr.sin_port = htons(c._remote_port); // Destination port
+      inet_pton(AF_INET, "127.0.0.1",
+                &c._remote_addr.sin_addr); // Destination IP
+
       // Talk to server, ask for conn_id
       std::vector<u8> config_info = {
           0}; // Future encryption things will be here I think, and maybe other
@@ -125,6 +154,7 @@ public:
       // Read conn_id from server, set it in this-> and send with every
       // subsequent Packet
       return c;
+
     } catch (std::exception e) {
       throw std::runtime_error(
           std::format("[ FATAL ] COULD NOT CREATE CONNECTION {}", e.what()));
@@ -165,11 +195,13 @@ public:
     serialize_multi_byte(htobe64(p->header._timestamp_ns), buf);
 
     // We have 1104 bytes left for the rest of the payload
-    serialize_multi_byte(htobe64(buf.size()), buf);
+    serialize_multi_byte(htobe64(p->payload.size()), buf);
 
     buf.insert(buf.end(), p->payload.begin(), p->payload.end());
 
-    // Send logic will be here, will do later
+    sendto(_sockfd, buf.data(), buf.size(), 0,
+           reinterpret_cast<struct sockaddr *>(&_remote_addr),
+           sizeof(_remote_addr));
 
     _send_queue.pop();
   }
