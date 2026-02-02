@@ -8,6 +8,7 @@
 #include <exception>
 #include <format>
 #include <memory>
+#include <netinet/in.h>
 #include <queue>
 #include <stdexcept>
 #include <sys/socket.h>
@@ -36,19 +37,22 @@ public:
   u64 _last_contiguous_ack;
   u64 _ack_bit_map;
   u64 _timestamp_ns;
+  u32 _payload_size;
 
   Header(PacketType type, u32 conn_id, u64 seq, u64 ack, u64 ack_bit_map,
-         u64 timestamp_ns)
+         u64 timestamp_ns, u32 payload_size)
       : _type(static_cast<u8>(type)), _conn_id(conn_id), _seq(seq),
         _last_contiguous_ack(ack), _ack_bit_map(ack_bit_map),
-        _timestamp_ns(timestamp_ns) {}
+        _timestamp_ns(timestamp_ns), _payload_size(payload_size) {}
 
-  Header(PacketType type, u32 conn_id, u64 seq, u64 ack, u64 ack_bit_map)
+  Header(PacketType type, u32 conn_id, u64 seq, u64 ack, u64 ack_bit_map,
+         u32 payload_size)
       : _type(static_cast<u8>(type)), _conn_id(conn_id), _seq(seq),
         _last_contiguous_ack(ack), _ack_bit_map(ack_bit_map),
         _timestamp_ns(std::chrono::duration_cast<std::chrono::nanoseconds>(
                           std::chrono::steady_clock::now().time_since_epoch())
-                          .count()) {}
+                          .count()),
+        _payload_size(payload_size) {}
 };
 
 class Packet {
@@ -57,7 +61,16 @@ class Packet {
 public:
   Header header;
   std::vector<u8> payload;
+
   size_t size() const { return sizeof(Header) + payload.size(); }
+
+  // Deleting because we don't want deep copies
+  Packet(const Packet &) = delete;
+  Packet &operator=(const Packet &) = delete;
+
+  Packet(Packet &&) = default;
+  Packet &operator=(Packet &&) = default;
+
   Packet(const std::vector<u8> &data, Header header) : header(header) {
     payload = std::move(data);
   };
@@ -86,8 +99,15 @@ class Connection {
   std::unordered_set<u64> _received_ooo_packet_nums; // Received out of order
   std::queue<std::shared_ptr<Packet>> _send_queue;
 
+  // Deleting because we don't want deep copies
+  Connection(const Connection &) = delete;
+  Connection &operator=(const Connection &) = delete;
+
+  Connection(Connection &&) = default;
+  Connection &operator=(Connection &&) = default;
+
   Connection()
-      : _conn_id(UINT32_MAX), _seq_to_send(0), _last_contiguous_ack(-1),
+      : _conn_id(UINT32_MAX), _seq_to_send(0), _last_contiguous_ack(0),
         _longest_contiguous_sequence(0),
         _rtt_smoothed(std::chrono::nanoseconds(0)),
         _rtt_variance(std::chrono::nanoseconds(0)), _congestion_window(12000),
@@ -128,14 +148,13 @@ class Connection {
   }
 
 public:
-  static Connection &init_handshake(Header init_header) {
+  Connection(Header init_header) {
     try {
-      static Connection c;
       // Create sockfd, set it in this object
-      c._sockfd = socket(AF_INET, SOCK_DGRAM, 0);
-      if (c._sockfd < 0) {
+      _sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+      if (_sockfd < 0) {
         throw std::runtime_error(
-            "[FATAL] socket could not be created! c._sockfd was error code");
+            "[FATAL] socket could not be created! _sockfd was error code");
       }
 
       struct sockaddr_in local_addr;
@@ -146,17 +165,17 @@ public:
       local_addr.sin_addr.s_addr = INADDR_ANY; // listen on all interfaces
       local_addr.sin_port = htons(local_port); // your port number
 
-      if (bind(c._sockfd, (struct sockaddr *)&local_addr, sizeof(local_addr)) <
+      if (bind(_sockfd, (struct sockaddr *)&local_addr, sizeof(local_addr)) <
           0) {
         throw std::runtime_error("[FATAL] could not bind socket");
       }
 
       u16 remote_port = 5001;
-      memset(&c._remote_addr, 0, sizeof(c._remote_addr));
-      c._remote_addr.sin_family = AF_INET;
-      c._remote_addr.sin_port = htons(c._remote_port); // Destination port
+      memset(&_remote_addr, 0, sizeof(_remote_addr));
+      _remote_addr.sin_family = AF_INET;
+      _remote_addr.sin_port = htons(_remote_port); // Destination port
       inet_pton(AF_INET, "127.0.0.1",
-                &c._remote_addr.sin_addr); // Destination IP
+                &_remote_addr.sin_addr); // Destination IP
 
       // Talk to server, ask for conn_id
       std::vector<u8> config_info = {
@@ -165,8 +184,6 @@ public:
       Packet init_packet = Packet(config_info, init_header);
       // Read conn_id from server, set it in this-> and send with every
       // subsequent Packet
-      return c;
-
     } catch (std::exception e) {
       throw std::runtime_error(
           std::format("[ FATAL ] COULD NOT CREATE CONNECTION {}", e.what()));
@@ -179,8 +196,9 @@ public:
 
     auto packet = std::make_shared<Packet>(
         data, Header(PacketType::DATA, _conn_id, _seq_to_send,
-                     _last_contiguous_ack, build_ack_bit_map()));
+                     _last_contiguous_ack, build_ack_bit_map(), data.size()));
 
+    _inflight_tracker[_seq_to_send] = packet;
     _send_queue.push(packet);
     ++_seq_to_send;
   }
@@ -233,6 +251,27 @@ public:
     }
   }
 
+  void update_in_flight_tracker(u64 header_ack, u64 ack_bit_map) {
+    for (auto it = _inflight_tracker.begin(); it != _inflight_tracker.end();) {
+      u32 seq = it->first;
+
+      if (seq <= header_ack) {
+        it = _inflight_tracker.erase(it);
+      } else if (seq <= (header_ack + 64)) {
+        u64 offset = (seq - (header_ack + 1));
+        if ((ack_bit_map >> offset) & 1) {
+          // Ack was set
+          it = _inflight_tracker.erase(it);
+        } else {
+          // Ack wasn't set for seq, so do not remove
+          ++it;
+        }
+      } else {
+        ++it;
+      }
+    }
+  }
+
   Packet receive_packet() {
     std::array<u8, 1400> buf;
     u16 packet_size = deserialize_all(_sockfd, buf);
@@ -247,6 +286,7 @@ public:
     u64 last_contiguous_ack;
     u64 ack_bit_map;
     u64 timestamp_ns;
+    u32 payload_size;
 
     std::memcpy(&conn_id, ptr, sizeof(conn_id));
     ptr += sizeof(conn_id);
@@ -263,20 +303,26 @@ public:
     std::memcpy(&timestamp_ns, ptr, sizeof(timestamp_ns));
     ptr += sizeof(timestamp_ns);
 
+    std::memcpy(&payload_size, ptr, sizeof(payload_size));
+    ptr += sizeof(payload_size);
+
     conn_id = ntohl(conn_id);
     seq = be64toh(seq);
     last_contiguous_ack = be64toh(last_contiguous_ack);
     ack_bit_map = be64toh(ack_bit_map);
     timestamp_ns = be64toh(timestamp_ns);
+    payload_size = ntohl(payload_size);
 
-    Header h = Header(static_cast<PacketType>(type), conn_id, seq,
-                      last_contiguous_ack, ack_bit_map, timestamp_ns);
+    Header h =
+        Header(static_cast<PacketType>(type), conn_id, seq, last_contiguous_ack,
+               ack_bit_map, timestamp_ns, payload_size);
 
+    update_in_flight_tracker(h._last_contiguous_ack, h._ack_bit_map);
 
-READ THE SIZE FIRST
+    std::vector<u8> v(buf.begin() + sizeof(Header),
+                      buf.begin() + payload_size + sizeof(Header));
 
-	std::vector<u8> slice(buf.begin() + sizeof(Header, )
-
+    return Packet(v, h);
   }
 
   void listen() {
