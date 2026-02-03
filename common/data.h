@@ -1,7 +1,6 @@
 #include <algorithm>
-#include <format>
-#include <array>
 #include <arpa/inet.h>
+#include <array>
 #include <chrono>
 #include <cmath>
 #include <cstddef>
@@ -12,6 +11,7 @@
 #include <format>
 #include <memory>
 #include <netinet/in.h>
+#include <ostream>
 #include <queue>
 #include <stdexcept>
 #include <sys/socket.h>
@@ -43,29 +43,22 @@ public:
   u32 _payload_size;
 
   Header(PacketType type, u32 conn_id, u64 seq, u64 ack, u64 ack_bit_map,
-         u64 timestamp_ns, u32 payload_size)
-      : _type(static_cast<u8>(type)), _conn_id(conn_id), _seq(seq),
-        _last_contiguous_ack(ack), _ack_bit_map(ack_bit_map),
-        _timestamp_ns(timestamp_ns), _payload_size(payload_size) {}
+         u64 timestamp_ns, u32 payload_size);
 
   Header(PacketType type, u32 conn_id, u64 seq, u64 ack, u64 ack_bit_map,
-         u32 payload_size)
-      : _type(static_cast<u8>(type)), _conn_id(conn_id), _seq(seq),
-        _last_contiguous_ack(ack), _ack_bit_map(ack_bit_map),
-        _timestamp_ns(std::chrono::duration_cast<std::chrono::nanoseconds>(
-                          std::chrono::steady_clock::now().time_since_epoch())
-                          .count()),
-        _payload_size(payload_size) {}
+         u32 payload_size);
+
+  friend std::ostream &operator<<(std::ostream &os, const Header &p);
 };
 
 class Packet {
   // NOTE: to stay within the limits of the MTU which for ethernet is 1500
   // bytes, keep Packet object size to <1400 bytes ideally.
 public:
-  Header header;
-  std::vector<u8> payload;
+  Header _header;
+  std::vector<u8> _payload;
 
-  size_t size() const { return sizeof(Header) + payload.size(); }
+  size_t size() const;
 
   // Deleting because we don't want deep copies
   Packet(const Packet &) = delete;
@@ -74,9 +67,9 @@ public:
   Packet(Packet &&) = default;
   Packet &operator=(Packet &&) = default;
 
-  Packet(const std::vector<u8> &data, Header header) : header(header) {
-    payload = std::move(data);
-  };
+  Packet(const std::vector<u8> &data, Header &header);
+
+  friend std::ostream &operator<<(std::ostream &os, const Packet &p);
 };
 
 class Connection {
@@ -112,16 +105,22 @@ class Connection {
   u64 build_ack_bit_map();
 
   template <typename T>
-  void serialize_multi_byte(const T &v, std::vector<u8> &buf);
+  void serialize_multi_byte(const T &v, std::vector<u8> &buf) {
+    buf.insert(buf.end(), reinterpret_cast<const u8 *>(&v),
+               reinterpret_cast<const u8 *>(&v) + sizeof(v));
+  }
 
   template <typename T>
-  void deserialize_multi_byte(const T &v, std::vector<u8> &buf);
+  void deserialize_multi_byte(const T &v, std::vector<u8> &buf) {
+    buf.insert(buf.end(), reinterpret_cast<const u8 *>(&v),
+               reinterpret_cast<const u8 *>(&v) + sizeof(v));
+  }
 
   void update_ack_states(u64 seq);
 
   void update_in_flight_tracker(u64 header_ack, u64 ack_bit_map);
 
-  u16 deserialize_all(int sockfd, std::array<u8, 1400> &buf);
+  int deserialize_all(int sockfd, std::array<u8, 1400> &buf);
 
 public:
   Connection();
@@ -129,7 +128,6 @@ public:
   void create_and_queue_for_sending(const std::vector<u8> &data);
 
   void flush_send_queue();
-
 
   Packet receive_packet();
 };
