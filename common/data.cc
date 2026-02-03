@@ -1,11 +1,15 @@
+#include <iostream>
 #include <arpa/inet.h>
+#include <array>
 #include <chrono>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
 #include <endian.h>
 #include <exception>
+#include <fcntl.h>
 #include <format>
 #include <memory>
 #include <netinet/in.h>
@@ -106,18 +110,6 @@ class Connection {
   Connection(Connection &&) = default;
   Connection &operator=(Connection &&) = default;
 
-  Connection()
-      : _conn_id(UINT32_MAX), _seq_to_send(0), _last_contiguous_ack(0),
-        _longest_contiguous_sequence(0),
-        _rtt_smoothed(std::chrono::nanoseconds(0)),
-        _rtt_variance(std::chrono::nanoseconds(0)), _congestion_window(12000),
-        _slow_start_threshold(INFINITY), _inflight_bytes(0) {
-          // _conn_id is set to UINT32_MAX at the beginnning just to create an
-          // invalid starting state. It gets updated in the init_handshake
-          // method to return the client programmer's Connection with a _conn_id
-          // from the server
-        };
-
   u64 build_ack_bit_map() {
     u64 ONE_ULL = 1;
     u64 bits = 0;
@@ -147,14 +139,81 @@ class Connection {
                reinterpret_cast<const u8 *>(&v) + sizeof(v));
   }
 
+  void update_ack_states(u64 seq) {
+    if (seq == _last_contiguous_ack + 1) {
+      while (_received_ooo_packet_nums.count(_last_contiguous_ack + 1)) {
+        _received_ooo_packet_nums.erase(_last_contiguous_ack++);
+      }
+    } else if (seq > _last_contiguous_ack + 1) {
+      _received_ooo_packet_nums.insert(seq);
+    }
+  }
+
+  void update_in_flight_tracker(u64 header_ack, u64 ack_bit_map) {
+    for (auto it = _inflight_tracker.begin(); it != _inflight_tracker.end();) {
+      u32 seq = it->first;
+
+      if (seq <= header_ack) {
+        it = _inflight_tracker.erase(it);
+      } else if (seq <= (header_ack + 64)) {
+        u64 offset = (seq - (header_ack + 1));
+        if ((ack_bit_map >> offset) & 1) {
+          // Ack was set
+          it = _inflight_tracker.erase(it);
+        } else {
+          // Ack wasn't set for seq, so do not remove
+          ++it;
+        }
+      } else {
+        ++it;
+      }
+    }
+  }
+
+  u16 deserialize_all(
+      int sockfd,
+      std::array<u8, 1400>
+          &buf) { // ONLY NEEDS TO RETURN U16 SINCE ARR BOUNDS ARENT THAT LARGE
+    socklen_t len;
+    u32 bytes_read =
+        recvfrom(_sockfd, buf.data(), buf.size(), 0,
+                 reinterpret_cast<struct sockaddr *>(&_remote_addr), &len);
+    if (bytes_read > 0) {
+      return bytes_read;
+    } else {
+      throw std::runtime_error("could not read bytes for packet data");
+    }
+  }
+
 public:
-  Connection(Header init_header) {
+  Connection()
+      : _conn_id(UINT32_MAX), _seq_to_send(0), _last_contiguous_ack(0),
+        _longest_contiguous_sequence(0),
+        _rtt_smoothed(std::chrono::nanoseconds(0)),
+        _rtt_variance(std::chrono::nanoseconds(0)), _congestion_window(12000),
+        _slow_start_threshold(UINT64_MAX), _inflight_bytes(0) {
+
+    // _conn_id is set to UINT32_MAX at the beginnning just to create an
+    // invalid starting state. It gets updated in the init_handshake
+    // method to return the client programmer's Connection with a _conn_id
+    // from the server
     try {
       // Create sockfd, set it in this object
       _sockfd = socket(AF_INET, SOCK_DGRAM, 0);
       if (_sockfd < 0) {
         throw std::runtime_error(
             "[FATAL] socket could not be created! _sockfd was error code");
+      }
+
+      int flags = fcntl(_sockfd, F_GETFL, 0);
+      if (flags == -1) {
+        perror("fcntl F_GETFL");
+        exit(EXIT_FAILURE);
+      }
+
+      if (fcntl(_sockfd, F_SETFL, flags | O_NONBLOCK) == -1) {
+        perror("fcntl F_SETFL");
+        exit(EXIT_FAILURE);
       }
 
       struct sockaddr_in local_addr;
@@ -177,11 +236,12 @@ public:
       inet_pton(AF_INET, "127.0.0.1",
                 &_remote_addr.sin_addr); // Destination IP
 
-      // Talk to server, ask for conn_id
       std::vector<u8> config_info = {
           0}; // Future encryption things will be here I think, and maybe other
               // config info I might need
-      Packet init_packet = Packet(config_info, init_header);
+      Packet init_packet = Packet(
+          config_info, Header(PacketType::HANDSHAKE, 0, _seq_to_send,
+                              _last_contiguous_ack, build_ack_bit_map(), 1));
       // Read conn_id from server, set it in this-> and send with every
       // subsequent Packet
     } catch (std::exception e) {
@@ -197,6 +257,8 @@ public:
     auto packet = std::make_shared<Packet>(
         data, Header(PacketType::DATA, _conn_id, _seq_to_send,
                      _last_contiguous_ack, build_ack_bit_map(), data.size()));
+
+    std::cout << "sent packet" << std::endl;
 
     _inflight_tracker[_seq_to_send] = packet;
     _send_queue.push(packet);
@@ -225,7 +287,7 @@ public:
     serialize_multi_byte(htobe64(p->header._timestamp_ns), buf);
 
     // We have 1360 bytes left for the rest of the payload
-    serialize_multi_byte(htobe64(p->payload.size()), buf);
+    serialize_multi_byte(htonl(p->payload.size()), buf);
 
     buf.insert(buf.end(), p->payload.begin(), p->payload.end());
 
@@ -234,42 +296,6 @@ public:
            sizeof(_remote_addr));
 
     _send_queue.pop();
-  }
-
-  u16 deserialize_all(
-      int sockfd,
-      std::array<u8, 1400>
-          &buf) { // ONLY NEEDS TO RETURN U16 SINCE ARR BOUNDS ARENT THAT LARGE
-    socklen_t len;
-    u32 bytes_read =
-        recvfrom(_sockfd, buf.data(), buf.size(), 0,
-                 reinterpret_cast<struct sockaddr *>(&_remote_addr), &len);
-    if (bytes_read > 0) {
-      return bytes_read;
-    } else {
-      throw std::runtime_error("could not read bytes for packet data");
-    }
-  }
-
-  void update_in_flight_tracker(u64 header_ack, u64 ack_bit_map) {
-    for (auto it = _inflight_tracker.begin(); it != _inflight_tracker.end();) {
-      u32 seq = it->first;
-
-      if (seq <= header_ack) {
-        it = _inflight_tracker.erase(it);
-      } else if (seq <= (header_ack + 64)) {
-        u64 offset = (seq - (header_ack + 1));
-        if ((ack_bit_map >> offset) & 1) {
-          // Ack was set
-          it = _inflight_tracker.erase(it);
-        } else {
-          // Ack wasn't set for seq, so do not remove
-          ++it;
-        }
-      } else {
-        ++it;
-      }
-    }
   }
 
   Packet receive_packet() {
@@ -318,17 +344,12 @@ public:
                ack_bit_map, timestamp_ns, payload_size);
 
     update_in_flight_tracker(h._last_contiguous_ack, h._ack_bit_map);
+    update_ack_states(seq);
 
     std::vector<u8> v(buf.begin() + sizeof(Header),
                       buf.begin() + payload_size + sizeof(Header));
 
     return Packet(v, h);
-  }
-
-  void listen() {
-    for (;;) {
-      Packet p = receive_packet();
-    }
   }
 };
 
