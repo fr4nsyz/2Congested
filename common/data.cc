@@ -33,9 +33,8 @@ Header::Header(PacketType type, u32 conn_id, u64 seq, u64 ack, u64 ack_bit_map,
 
 size_t Packet::size() const { return sizeof(Header) + _payload.size(); }
 
-Packet::Packet(const std::vector<u8> &data, Header &header)
-    : _header(std::move(header)) {
-  _payload = std::move(data);
+Packet::Packet(const std::vector<u8> &data, Header &header) : _header(header) {
+  _payload = data;
 };
 
 u64 Connection::build_ack_bit_map() {
@@ -58,7 +57,7 @@ u64 Connection::build_ack_bit_map() {
 void Connection::update_ack_states(u64 seq) {
   if (seq == _last_contiguous_ack + 1) {
     while (_received_ooo_packet_nums.count(_last_contiguous_ack + 1)) {
-      _received_ooo_packet_nums.erase(_last_contiguous_ack++);
+      _received_ooo_packet_nums.erase(++_last_contiguous_ack);
     }
   } else if (seq > _last_contiguous_ack + 1) {
     _received_ooo_packet_nums.insert(seq);
@@ -92,19 +91,19 @@ int Connection::deserialize_all(
         &buf) { // ONLY NEEDS TO RETURN U16 SINCE ARR BOUNDS ARENT THAT LARGE
 
   socklen_t len = sizeof(_remote_addr);
+
+  struct sockaddr_in from_addr;
+
   int bytes_read =
       recvfrom(_sockfd, buf.data(), buf.size(), 0,
-               reinterpret_cast<struct sockaddr *>(&_remote_addr), &len);
+               reinterpret_cast<struct sockaddr *>(&from_addr), &len);
 
-  if (bytes_read < 0) {
-    std::runtime_error("could not recvfrom");
-  }
-
+  std::cout << bytes_read << std::endl;
   return bytes_read;
 }
 
-Connection::Connection()
-    : _conn_id(UINT32_MAX), _seq_to_send(0), _last_contiguous_ack(0),
+Connection::Connection(u16 local_port, u16 remote_port)
+    : _local_port(local_port), _remote_port(remote_port), _conn_id(UINT32_MAX), _seq_to_send(0), _last_contiguous_ack(0),
       _longest_contiguous_sequence(0),
       _rtt_smoothed(std::chrono::nanoseconds(0)),
       _rtt_variance(std::chrono::nanoseconds(0)), _congestion_window(12000),
@@ -134,18 +133,16 @@ Connection::Connection()
     }
 
     struct sockaddr_in local_addr;
-    u16 local_port = 5000;
 
     memset(&local_addr, 0, sizeof(local_addr));
     local_addr.sin_family = AF_INET;
     local_addr.sin_addr.s_addr = INADDR_ANY; // listen on all interfaces
-    local_addr.sin_port = htons(local_port); // your port number
+    local_addr.sin_port = htons(_local_port); // your port number
 
     if (bind(_sockfd, (struct sockaddr *)&local_addr, sizeof(local_addr)) < 0) {
       throw std::runtime_error("[FATAL] could not bind socket");
     }
 
-    u16 remote_port = 5001;
     memset(&_remote_addr, 0, sizeof(_remote_addr));
     _remote_addr.sin_family = AF_INET;
     _remote_addr.sin_port = htons(_remote_port); // Destination port
@@ -225,6 +222,7 @@ Packet Connection::receive_packet() {
   std::array<u8, 1400> buf;
 
   int packet_size = deserialize_all(_sockfd, buf);
+
   if (packet_size < 0) {
     throw std::runtime_error("no packet");
   }

@@ -78,6 +78,7 @@ class Connection {
   int _sockfd;
   struct sockaddr_in _local_addr;
   struct sockaddr_in _remote_addr;
+  u16 _local_port;
   u16 _remote_port;
 
   // Connection Things
@@ -123,7 +124,7 @@ class Connection {
   int deserialize_all(int sockfd, std::array<u8, 1400> &buf);
 
 public:
-  Connection();
+  Connection(u16 local_port, u16 remote_port);
 
   void create_and_queue_for_sending(const std::vector<u8> &data);
 
