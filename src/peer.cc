@@ -1,13 +1,23 @@
 #include "../common/data.h"
 #include <exception>
 #include <iostream>
-int main() {
-  Connection c = Connection();
+#include <stdexcept>
+int main(int argc, char *argv[]) {
+
+  if (argc < 3) {
+    std::cout << "gimme ports dum dum" << std::endl;
+  }
+
+  u16 local_port = atoi(argv[1]);
+  u16 remote_port = atoi(argv[2]);
+
+  Connection c = Connection(local_port, remote_port);
   std::vector<u8> v = {0, 1, 2, 3, 4};
   for (;;) {
     try {
       c.receive_packet();
       std::cout << "Received" << std::endl;
+      throw std::runtime_error(" I RECEVIED SOMETHING");
     } catch (std::exception e) {
       std::cout << "receive error: " << e.what() << std::endl;
     }
