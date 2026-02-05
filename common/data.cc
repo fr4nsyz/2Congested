@@ -46,6 +46,9 @@ u64 Connection::build_ack_bit_map() {
     }
 
     u64 i = seq - (_last_contiguous_ack + 1);
+    // i yields too large numbers if sender/receiver starts at a diff time
+
+    std::cout << "offset bit: " << i << std::endl;
 
     if (i < 64) {
       bits |= (ONE_ULL << i); // Need to get bit position at i in the bit map
@@ -69,7 +72,9 @@ void Connection::update_ack_states(u64 seq) {
 }
 
 void Connection::update_in_flight_tracker(u64 header_ack, u64 ack_bit_map) {
-    std::cout << "called update_in_flight_tracker with _inflight_tracker size of: " << _inflight_tracker.size() << std::endl;
+  std::cout
+      << "called update_in_flight_tracker with _inflight_tracker size of: "
+      << _inflight_tracker.size() << std::endl;
   for (auto it = _inflight_tracker.begin(); it != _inflight_tracker.end();) {
     u32 seq = it->first;
 
@@ -221,7 +226,6 @@ void Connection::create_and_queue_for_sending(const std::vector<u8> &data) {
 void Connection::flush_send_queue() {
 
   if (_inflight_bytes >= _congestion_window) {
-    std::cout << "IM CONGESTEDD";
     return;
   } else {
     std::cout << "not congested " << _inflight_bytes << " "

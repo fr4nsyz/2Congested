@@ -28,6 +28,6 @@ int main(int argc, char *argv[]) {
     c.flush_send_queue();
     std::cout << "sent" << std::endl;
     sleep(counter / 1);
-    counter *= 0.95;
+    counter *= 0.90;
   }
 }
