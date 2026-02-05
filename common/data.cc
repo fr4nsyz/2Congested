@@ -69,12 +69,16 @@ void Connection::update_in_flight_tracker(u64 header_ack, u64 ack_bit_map) {
     u32 seq = it->first;
 
     if (seq <= header_ack) {
+
+      _inflight_bytes -= it->second->size();
+
       it = _inflight_tracker.erase(it);
     } else if (seq <= (header_ack + 64)) {
       u64 offset = (seq - (header_ack + 1));
       if ((ack_bit_map >> offset) & 1) {
         // Ack was set
         it = _inflight_tracker.erase(it);
+        _inflight_bytes -= it->second->size();
       } else {
         // Ack wasn't set for seq, so do not remove
         ++it;
@@ -103,8 +107,8 @@ int Connection::deserialize_all(
 }
 
 Connection::Connection(u16 local_port, u16 remote_port)
-    : _local_port(local_port), _remote_port(remote_port), _conn_id(UINT32_MAX), _seq_to_send(0), _last_contiguous_ack(0),
-      _longest_contiguous_sequence(0),
+    : _local_port(local_port), _remote_port(remote_port), _conn_id(UINT32_MAX),
+      _seq_to_send(0), _last_contiguous_ack(0), _longest_contiguous_sequence(0),
       _rtt_smoothed(std::chrono::nanoseconds(0)),
       _rtt_variance(std::chrono::nanoseconds(0)), _congestion_window(12000),
       _slow_start_threshold(UINT64_MAX), _inflight_bytes(0) {
@@ -136,7 +140,7 @@ Connection::Connection(u16 local_port, u16 remote_port)
 
     memset(&local_addr, 0, sizeof(local_addr));
     local_addr.sin_family = AF_INET;
-    local_addr.sin_addr.s_addr = INADDR_ANY; // listen on all interfaces
+    local_addr.sin_addr.s_addr = INADDR_ANY;  // listen on all interfaces
     local_addr.sin_port = htons(_local_port); // your port number
 
     if (bind(_sockfd, (struct sockaddr *)&local_addr, sizeof(local_addr)) < 0) {
@@ -176,11 +180,18 @@ void Connection::create_and_queue_for_sending(const std::vector<u8> &data) {
   std::cout << "sent packet" << *packet << std::endl;
 
   _inflight_tracker[_seq_to_send] = packet;
+  _inflight_bytes += packet->size();
+
   _send_queue.push(packet);
   ++_seq_to_send;
 }
 
 void Connection::flush_send_queue() {
+
+  if (_inflight_bytes >= _congestion_window) {
+    _congestion_window /= 2;
+    return;
+  }
 
   if (_send_queue.empty()) {
     return;
