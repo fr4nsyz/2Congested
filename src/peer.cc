@@ -2,6 +2,7 @@
 #include <exception>
 #include <iostream>
 #include <stdexcept>
+#include <unistd.h>
 int main(int argc, char *argv[]) {
 
   if (argc < 3) {
@@ -13,6 +14,8 @@ int main(int argc, char *argv[]) {
 
   Connection c = Connection(local_port, remote_port);
   std::vector<u8> v = {0, 1, 2, 3, 4};
+  double counter = 1;
+
   for (;;) {
     try {
       c.receive_packet();
@@ -24,5 +27,7 @@ int main(int argc, char *argv[]) {
     c.create_and_queue_for_sending(v);
     c.flush_send_queue();
     std::cout << "sent" << std::endl;
+    sleep(counter / 1);
+    counter *= 0.90;
   }
 }

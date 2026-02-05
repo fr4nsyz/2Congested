@@ -31,7 +31,7 @@ Header::Header(PacketType type, u32 conn_id, u64 seq, u64 ack, u64 ack_bit_map,
                         .count()),
       _payload_size(payload_size) {}
 
-size_t Packet::size() const { return sizeof(Header) + _payload.size(); }
+size_t Packet::size() const { return HEADER_SIZE + _payload.size(); }
 
 Packet::Packet(const std::vector<u8> &data, Header &header) : _header(header) {
   _payload = data;
@@ -46,6 +46,9 @@ u64 Connection::build_ack_bit_map() {
     }
 
     u64 i = seq - (_last_contiguous_ack + 1);
+    // i yields too large numbers if sender/receiver starts at a diff time
+
+    std::cout << "offset bit: " << i << std::endl;
 
     if (i < 64) {
       bits |= (ONE_ULL << i); // Need to get bit position at i in the bit map
@@ -55,25 +58,40 @@ u64 Connection::build_ack_bit_map() {
 }
 
 void Connection::update_ack_states(u64 seq) {
-  if (seq == _last_contiguous_ack + 1) {
-    while (_received_ooo_packet_nums.count(_last_contiguous_ack + 1)) {
-      _received_ooo_packet_nums.erase(++_last_contiguous_ack);
-    }
-  } else if (seq > _last_contiguous_ack + 1) {
-    _received_ooo_packet_nums.insert(seq);
+  if (seq <= _last_contiguous_ack) {
+    return; // duplicate / old
+  }
+
+  std::cout << "just inserting blah" << std::endl;
+  _received_ooo_packet_nums.insert(seq);
+
+  while (_received_ooo_packet_nums.count(_last_contiguous_ack + 1)) {
+    std::cout << "should be removing some" << std::endl;
+    _received_ooo_packet_nums.erase(++_last_contiguous_ack);
   }
 }
 
 void Connection::update_in_flight_tracker(u64 header_ack, u64 ack_bit_map) {
+  std::cout
+      << "called update_in_flight_tracker with _inflight_tracker size of: "
+      << _inflight_tracker.size() << std::endl;
   for (auto it = _inflight_tracker.begin(); it != _inflight_tracker.end();) {
     u32 seq = it->first;
 
     if (seq <= header_ack) {
+      u32 size_gained = it->second->size();
+      std::cout << "removed from inflight" << std::endl;
+      _inflight_bytes -= size_gained;
+      _congestion_window += size_gained;
       it = _inflight_tracker.erase(it);
     } else if (seq <= (header_ack + 64)) {
       u64 offset = (seq - (header_ack + 1));
       if ((ack_bit_map >> offset) & 1) {
         // Ack was set
+        u32 size_gained = it->second->size();
+        _inflight_bytes -= size_gained;
+        std::cout << "removed from inflight" << std::endl;
+        _congestion_window += size_gained;
         it = _inflight_tracker.erase(it);
       } else {
         // Ack wasn't set for seq, so do not remove
@@ -86,9 +104,10 @@ void Connection::update_in_flight_tracker(u64 header_ack, u64 ack_bit_map) {
 }
 
 int Connection::deserialize_all(
-    int sockfd,
     std::array<u8, 1400>
         &buf) { // ONLY NEEDS TO RETURN U16 SINCE ARR BOUNDS ARENT THAT LARGE
+  std::cout << "[recv loop] calling recvfrom on port "
+            << ntohs(_local_addr.sin_port) << std::endl;
 
   socklen_t len = sizeof(_remote_addr);
 
@@ -103,12 +122,11 @@ int Connection::deserialize_all(
 }
 
 Connection::Connection(u16 local_port, u16 remote_port)
-    : _local_port(local_port), _remote_port(remote_port), _conn_id(UINT32_MAX), _seq_to_send(0), _last_contiguous_ack(0),
-      _longest_contiguous_sequence(0),
+    : _local_port(local_port), _remote_port(remote_port), _conn_id(UINT32_MAX),
+      _seq_to_send(0), _last_contiguous_ack(0), _longest_contiguous_sequence(0),
       _rtt_smoothed(std::chrono::nanoseconds(0)),
       _rtt_variance(std::chrono::nanoseconds(0)), _congestion_window(12000),
       _slow_start_threshold(UINT64_MAX), _inflight_bytes(0) {
-
   // _conn_id is set to UINT32_MAX at the beginnning just to create an
   // invalid starting state. It gets updated in the init_handshake
   // method to return the client programmer's Connection with a _conn_id
@@ -136,7 +154,7 @@ Connection::Connection(u16 local_port, u16 remote_port)
 
     memset(&local_addr, 0, sizeof(local_addr));
     local_addr.sin_family = AF_INET;
-    local_addr.sin_addr.s_addr = INADDR_ANY; // listen on all interfaces
+    local_addr.sin_addr.s_addr = INADDR_ANY;  // listen on all interfaces
     local_addr.sin_port = htons(_local_port); // your port number
 
     if (bind(_sockfd, (struct sockaddr *)&local_addr, sizeof(local_addr)) < 0) {
@@ -149,11 +167,31 @@ Connection::Connection(u16 local_port, u16 remote_port)
     inet_pton(AF_INET, "127.0.0.1",
               &_remote_addr.sin_addr); // Destination IP
 
+    char local_ip[INET_ADDRSTRLEN];
+    inet_ntop(AF_INET, &local_addr.sin_addr, local_ip, sizeof(local_ip));
+
+    char remote_ip[INET_ADDRSTRLEN];
+    inet_ntop(AF_INET, &_remote_addr.sin_addr, remote_ip, sizeof(remote_ip));
+
+    std::cout << "Local  IP: " << local_ip
+              << "  port: " << ntohs(local_addr.sin_port) << "\n";
+    std::cout << "Remote IP: " << remote_ip
+              << "  port: " << ntohs(_remote_addr.sin_port) << "\n";
+
+    std::cout << "=== SOCKET INFO ===\n"
+              << "Local:  " << _local_port << ":" << ntohs(local_addr.sin_port)
+              << "\n"
+              << "Remote: " << _remote_port << ":"
+              << ntohs(_remote_addr.sin_port) << "\n"
+              << "conn_id: " << _conn_id << "\n==================\n";
+
     std::vector<u8> config_info = {
         0}; // Future encryption things will be here I think, and maybe other
             // config info I might need
     Header h = Header(PacketType::HANDSHAKE, 0, _seq_to_send,
                       _last_contiguous_ack, build_ack_bit_map(), 1);
+    std::cout << "_last_contiguous_ack: " << _last_contiguous_ack << " "
+              << h._ack_bit_map << std::endl;
     Packet init_packet = Packet(config_info, h);
     // Read conn_id from server, set it in this-> and send with every
     // subsequent Packet
@@ -176,11 +214,23 @@ void Connection::create_and_queue_for_sending(const std::vector<u8> &data) {
   std::cout << "sent packet" << *packet << std::endl;
 
   _inflight_tracker[_seq_to_send] = packet;
+
   _send_queue.push(packet);
-  ++_seq_to_send;
+  std::cout << "[SEND] seq = " << _seq_to_send
+            << "  last_ack = " << _last_contiguous_ack << "  bitmap = 0x"
+            << std::hex << build_ack_bit_map() << std::dec
+            << "  inflight = " << _inflight_bytes << "/" << _congestion_window
+            << "\n";
 }
 
 void Connection::flush_send_queue() {
+
+  if (_inflight_bytes >= _congestion_window) {
+    return;
+  } else {
+    std::cout << "not congested " << _inflight_bytes << " "
+              << _congestion_window << std::endl;
+  }
 
   if (_send_queue.empty()) {
     return;
@@ -215,13 +265,15 @@ void Connection::flush_send_queue() {
          reinterpret_cast<struct sockaddr *>(&_remote_addr),
          sizeof(_remote_addr));
 
+  _inflight_bytes += p->size();
+  ++_seq_to_send;
   _send_queue.pop();
 }
 
 Packet Connection::receive_packet() {
   std::array<u8, 1400> buf;
 
-  int packet_size = deserialize_all(_sockfd, buf);
+  int packet_size = deserialize_all(buf);
 
   if (packet_size < 0) {
     throw std::runtime_error("no packet");
@@ -273,8 +325,15 @@ Packet Connection::receive_packet() {
   update_in_flight_tracker(h._last_contiguous_ack, h._ack_bit_map);
   update_ack_states(seq);
 
-  std::vector<u8> v(ptr, ptr + payload_size);
+  if (ptr + payload_size > buf.data() + packet_size) {
+    throw std::runtime_error("malformed packet");
+  }
 
+  std::vector<u8> v(ptr, ptr + payload_size);
+  std::cout << "[RECV] seq = " << seq << "  ack = " << last_contiguous_ack
+            << "  bitmap = 0x" << std::hex << ack_bit_map << std::dec
+            << "  my_last_ack = " << _last_contiguous_ack
+            << "  ooo size = " << _received_ooo_packet_nums.size() << "\n";
   return Packet(v, h);
 }
 
@@ -285,7 +344,7 @@ std::ostream &operator<<(std::ostream &os, const Header &h) {
 }
 
 std::ostream &operator<<(std::ostream &os, const Packet &p) {
-  os << p._header << ", payload_size=" << p.size() - sizeof(Header);
+  os << p._header << ", payload_size=" << p.size() - HEADER_SIZE;
   return os;
 }
 
