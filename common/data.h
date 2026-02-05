@@ -32,6 +32,8 @@ enum class PacketType : uint8_t {
   CLOSE
 };
 
+constexpr int HEADER_SIZE = 41;
+
 class Header {
 public:
   u8 _type;
@@ -121,7 +123,7 @@ class Connection {
 
   void update_in_flight_tracker(u64 header_ack, u64 ack_bit_map);
 
-  int deserialize_all(int sockfd, std::array<u8, 1400> &buf);
+  int deserialize_all(std::array<u8, 1400> &buf);
 
 public:
   Connection(u16 local_port, u16 remote_port);
