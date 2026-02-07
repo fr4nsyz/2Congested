@@ -1,10 +1,5 @@
 #include "../common/data.h"
-#include <algorithm>
-#include <chrono>
-#include <exception>
-#include <iostream>
-#include <thread>
-#include <unistd.h>
+#include <future>
 
 int main(int argc, char *argv[]) {
 
@@ -18,33 +13,15 @@ int main(int argc, char *argv[]) {
 
   Connection c = Connection(local_port, remote_port);
   std::vector<u8> v = {0, 1, 2, 3, 4};
+  std::vector<u8> v2 = {1, 2, 3, 4, 5};
+  std::vector<u8> v3 = {2, 3, 4, 5, 6};
 
-  int base = 250;
-  double scaler = 0.5;
+  std::future<void> f = std::async(std::launch::async, &Connection::start, &c);
 
-  using clock = std::chrono::steady_clock;
-  auto next_send_time = clock::now();
-
-  for (;;) {
-    try {
-      c.receive_packet();
-      std::cout << "Received" << std::endl;
-    } catch (std::exception &e) {
-      std::cout << "receive error: " << e.what() << std::endl;
-    }
-
-    auto now = clock::now();
-    if (now >= next_send_time) {
-      c.create_and_queue_for_sending(v);
-      c.flush_send_queue();
-      std::cout << "sent" << std::endl;
-
-      int delay = std::max(base, 1);
-      next_send_time = now + std::chrono::milliseconds(delay);
-
-      base *= scaler;
-    }
-
-    std::this_thread::sleep_for(std::chrono::milliseconds(1));
-  }
+  c.send(v);
+  std::cout << "sent v" << std::endl;
+  c.send(v2);
+  std::cout << "sent v2" << std::endl;
+  c.send(v3);
+  std::cout << "sent v3" << std::endl;
 }

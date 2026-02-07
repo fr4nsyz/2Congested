@@ -1,20 +1,6 @@
 #include "../common/data.h"
-#include <arpa/inet.h>
-#include <cmath>
-#include <cstdint>
-#include <cstdio>
-#include <cstring>
-#include <endian.h>
-#include <fcntl.h>
-#include <iostream>
-#include <netinet/in.h>
 #include <stdexcept>
-#include <sys/socket.h>
-
-using u32 = uint32_t;
-using u16 = uint16_t;
-using u8 = uint8_t;
-using u64 = uint64_t;
+#include <sys/epoll.h>
 
 Header::Header(PacketType type, u32 conn_id, u64 seq, u64 ack, u64 ack_bit_map,
                u64 timestamp_ns, u32 payload_size)
@@ -171,6 +157,20 @@ Connection::Connection(u16 local_port, u16 remote_port)
     std::cout << "Remote IP: " << remote_ip
               << "  port: " << ntohs(_remote_addr.sin_port) << "\n";
 
+    _epoll_fd = epoll_create1(0);
+    if (_epoll_fd == -1) {
+      throw std::runtime_error("could not create epoll instance");
+    }
+
+    struct epoll_event ev;
+
+    ev.events = EPOLLIN;
+    ev.data.fd = _sockfd;
+
+    if (epoll_ctl(_epoll_fd, EPOLL_CTL_ADD, _sockfd, &ev)) {
+      throw std::runtime_error("could not configure epoll");
+    }
+
     std::cout << "=== SOCKET INFO ===\n"
               << "Local:  " << _local_port << ":" << ntohs(local_addr.sin_port)
               << "\n"
@@ -186,20 +186,19 @@ Connection::Connection(u16 local_port, u16 remote_port)
     Packet init_packet = Packet(config_info, h);
     // Read conn_id from server, set it in this-> and send with every
     // subsequent Packet
-  } catch (std::exception e) {
+  } catch (const std::exception &e) {
     throw std::runtime_error(
         std::format("[ FATAL ] COULD NOT CREATE CONNECTION {}", e.what()));
   }
 }
 
-void Connection::create_and_queue_for_sending(const std::vector<u8> &data) {
+void Connection::send(const std::vector<u8> &data) {
   // NOTE THIS ASSUMES THE CALLER KNOWS THE VECTOR data IS WITHIN THE UDP
   // DATAGRAM PACKET SIZE TO ENSURE SENIDNG IS WITHIN BOUNDS OF MTU
 
   Header h = Header(PacketType::DATA, _conn_id, _seq_to_send,
                     _last_contiguous_ack, build_ack_bit_map(), data.size());
   auto packet = std::make_shared<Packet>(data, h);
-
 
   _inflight_tracker[_seq_to_send] = packet;
 
@@ -256,69 +255,108 @@ void Connection::flush_send_queue() {
   _send_queue.pop();
 }
 
-Packet Connection::receive_packet() {
-  std::array<u8, 1400> buf;
+void Connection::start() {
+  int base = 250;
+  double scaler = 0.5;
 
-  int packet_size = deserialize_all(buf);
+  using clock = std::chrono::steady_clock;
+  auto next_send_time = clock::now();
 
-  if (packet_size < 0) {
-    throw std::runtime_error("no packet");
+  for (;;) {
+    try {
+      this->receive_packets();
+    } catch (std::exception &e) {
+      std::cout << "receive error: " << e.what() << std::endl;
+    }
+
+    auto now = clock::now();
+    if (now >= next_send_time) {
+
+      this->flush_send_queue();
+
+      int delay = std::max(base, 1);
+      next_send_time = now + std::chrono::milliseconds(delay);
+
+      base *= scaler;
+    }
+  }
+}
+
+std::vector<Packet> Connection::receive_packets() {
+
+  _nfds = epoll_wait(_epoll_fd, _events, MAX_EVENTS, 1);
+  if (_nfds == -1) {
+    throw std::runtime_error(
+        std::format("epoll wait experienced an error: {}", _nfds));
   }
 
-  u8 *ptr = buf.data();
+  std::vector<Packet> ret;
 
-  u8 type = *ptr;
-  ++ptr;
+  for (int i = 0; i < _nfds; ++i) {
+    if (_events[i].events & EPOLLIN && _events[i].data.fd == _sockfd) {
+      int packet_size = deserialize_all(_read_buf);
 
-  u32 conn_id;
-  u64 seq;
-  u64 last_contiguous_ack;
-  u64 ack_bit_map;
-  u64 timestamp_ns;
-  u32 payload_size;
+      if (packet_size < 0) {
+        throw std::runtime_error("no packet");
+      }
 
-  std::memcpy(&conn_id, ptr, sizeof(conn_id));
-  ptr += sizeof(conn_id);
+      u8 *ptr = _read_buf.data();
 
-  std::memcpy(&seq, ptr, sizeof(seq));
-  ptr += sizeof(seq);
+      u8 type = *ptr;
+      ++ptr;
 
-  std::memcpy(&last_contiguous_ack, ptr, sizeof(last_contiguous_ack));
-  ptr += sizeof(last_contiguous_ack);
+      u32 conn_id;
+      u64 seq;
+      u64 last_contiguous_ack;
+      u64 ack_bit_map;
+      u64 timestamp_ns;
+      u32 payload_size;
 
-  std::memcpy(&ack_bit_map, ptr, sizeof(ack_bit_map));
-  ptr += sizeof(ack_bit_map);
+      std::memcpy(&conn_id, ptr, sizeof(conn_id));
+      ptr += sizeof(conn_id);
 
-  std::memcpy(&timestamp_ns, ptr, sizeof(timestamp_ns));
-  ptr += sizeof(timestamp_ns);
+      std::memcpy(&seq, ptr, sizeof(seq));
+      ptr += sizeof(seq);
 
-  std::memcpy(&payload_size, ptr, sizeof(payload_size));
-  ptr += sizeof(payload_size);
+      std::memcpy(&last_contiguous_ack, ptr, sizeof(last_contiguous_ack));
+      ptr += sizeof(last_contiguous_ack);
 
-  conn_id = ntohl(conn_id);
-  seq = be64toh(seq);
-  last_contiguous_ack = be64toh(last_contiguous_ack);
-  ack_bit_map = be64toh(ack_bit_map);
-  timestamp_ns = be64toh(timestamp_ns);
-  payload_size = ntohl(payload_size);
+      std::memcpy(&ack_bit_map, ptr, sizeof(ack_bit_map));
+      ptr += sizeof(ack_bit_map);
 
-  if (ptr + payload_size > buf.data() + packet_size) {
-    throw std::runtime_error("malformed packet");
+      std::memcpy(&timestamp_ns, ptr, sizeof(timestamp_ns));
+      ptr += sizeof(timestamp_ns);
+
+      std::memcpy(&payload_size, ptr, sizeof(payload_size));
+      ptr += sizeof(payload_size);
+
+      conn_id = ntohl(conn_id);
+      seq = be64toh(seq);
+      last_contiguous_ack = be64toh(last_contiguous_ack);
+      ack_bit_map = be64toh(ack_bit_map);
+      timestamp_ns = be64toh(timestamp_ns);
+      payload_size = ntohl(payload_size);
+
+      if (ptr + payload_size > _read_buf.data() + packet_size) {
+        throw std::runtime_error("malformed packet");
+      }
+
+      Header h =
+          Header(static_cast<PacketType>(type), conn_id, seq,
+                 last_contiguous_ack, ack_bit_map, timestamp_ns, payload_size);
+
+      update_in_flight_tracker(h._last_contiguous_ack, h._ack_bit_map);
+      update_ack_states(seq);
+
+      std::vector<u8> v(ptr, ptr + payload_size);
+      std::cout << "[RECV] seq = " << seq << "  ack = " << last_contiguous_ack
+                << "  bitmap = 0x" << std::hex << ack_bit_map << std::dec
+                << "  my_last_ack = " << _last_contiguous_ack
+                << "  ooo size = " << _received_ooo_packet_nums.size() << "\n";
+      ret.push_back(Packet(v, h));
+    }
   }
-
-  Header h =
-      Header(static_cast<PacketType>(type), conn_id, seq, last_contiguous_ack,
-             ack_bit_map, timestamp_ns, payload_size);
-
-  update_in_flight_tracker(h._last_contiguous_ack, h._ack_bit_map);
-  update_ack_states(seq);
-
-  std::vector<u8> v(ptr, ptr + payload_size);
-  std::cout << "[RECV] seq = " << seq << "  ack = " << last_contiguous_ack
-            << "  bitmap = 0x" << std::hex << ack_bit_map << std::dec
-            << "  my_last_ack = " << _last_contiguous_ack
-            << "  ooo size = " << _received_ooo_packet_nums.size() << "\n";
-  return Packet(v, h);
+  return ret;
 }
 
 std::ostream &operator<<(std::ostream &os, const Header &h) {
