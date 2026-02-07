@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <arpa/inet.h>
 #include <array>
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <cstddef>
@@ -8,13 +9,17 @@
 #include <cstring>
 #include <endian.h>
 #include <exception>
+#include <fcntl.h>
 #include <format>
+#include <iostream>
 #include <memory>
 #include <netinet/in.h>
 #include <ostream>
 #include <queue>
 #include <stdexcept>
+#include <sys/epoll.h>
 #include <sys/socket.h>
+#include <thread>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -23,6 +28,8 @@ using u32 = uint32_t;
 using u16 = uint16_t;
 using u8 = uint8_t;
 using u64 = uint64_t;
+
+const int MAX_EVENTS = 2;
 
 enum class PacketType : uint8_t {
   HANDSHAKE = 0,
@@ -78,6 +85,9 @@ class Connection {
 
   // Socket Things
   int _sockfd;
+  int _epoll_fd, _nfds;
+  struct epoll_event _events[MAX_EVENTS];
+
   struct sockaddr_in _local_addr;
   struct sockaddr_in _remote_addr;
   u16 _local_port;
@@ -97,6 +107,7 @@ class Connection {
   std::unordered_map<u64, std::shared_ptr<Packet>> _inflight_tracker;
   std::unordered_set<u64> _received_ooo_packet_nums; // Received out of order
   std::queue<std::shared_ptr<Packet>> _send_queue;
+  std::array<u8, 1400> _read_buf;
 
   // Deleting because we don't want deep copies
   Connection(const Connection &) = delete;
@@ -125,14 +136,16 @@ class Connection {
 
   int deserialize_all(std::array<u8, 1400> &buf);
 
+  void flush_send_queue();
+
+  std::vector<Packet> receive_packets();
+
 public:
   Connection(u16 local_port, u16 remote_port);
 
-  void create_and_queue_for_sending(const std::vector<u8> &data);
+  void start();
 
-  void flush_send_queue();
-
-  Packet receive_packet();
+  void send(const std::vector<u8> &data);
 };
 
 // bytes_in_flight ≤ cwnd must always hold
