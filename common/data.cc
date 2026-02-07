@@ -48,8 +48,6 @@ u64 Connection::build_ack_bit_map() {
     u64 i = seq - (_last_contiguous_ack + 1);
     // i yields too large numbers if sender/receiver starts at a diff time
 
-    std::cout << "offset bit: " << i << std::endl;
-
     if (i < 64) {
       bits |= (ONE_ULL << i); // Need to get bit position at i in the bit map
     }
@@ -67,7 +65,8 @@ void Connection::update_ack_states(u64 seq) {
 
   while (_received_ooo_packet_nums.count(_last_contiguous_ack + 1)) {
     std::cout << "should be removing some" << std::endl;
-    _received_ooo_packet_nums.erase(++_last_contiguous_ack);
+    _received_ooo_packet_nums.erase(_last_contiguous_ack + 1);
+    _last_contiguous_ack++;
   }
 }
 
@@ -82,7 +81,6 @@ void Connection::update_in_flight_tracker(u64 header_ack, u64 ack_bit_map) {
       u32 size_gained = it->second->size();
       std::cout << "removed from inflight" << std::endl;
       _inflight_bytes -= size_gained;
-      _congestion_window += size_gained;
       it = _inflight_tracker.erase(it);
     } else if (seq <= (header_ack + 64)) {
       u64 offset = (seq - (header_ack + 1));
@@ -91,7 +89,6 @@ void Connection::update_in_flight_tracker(u64 header_ack, u64 ack_bit_map) {
         u32 size_gained = it->second->size();
         _inflight_bytes -= size_gained;
         std::cout << "removed from inflight" << std::endl;
-        _congestion_window += size_gained;
         it = _inflight_tracker.erase(it);
       } else {
         // Ack wasn't set for seq, so do not remove
@@ -106,8 +103,6 @@ void Connection::update_in_flight_tracker(u64 header_ack, u64 ack_bit_map) {
 int Connection::deserialize_all(
     std::array<u8, 1400>
         &buf) { // ONLY NEEDS TO RETURN U16 SINCE ARR BOUNDS ARENT THAT LARGE
-  std::cout << "[recv loop] calling recvfrom on port "
-            << ntohs(_local_addr.sin_port) << std::endl;
 
   socklen_t len = sizeof(_remote_addr);
 
@@ -116,8 +111,6 @@ int Connection::deserialize_all(
   int bytes_read =
       recvfrom(_sockfd, buf.data(), buf.size(), 0,
                reinterpret_cast<struct sockaddr *>(&from_addr), &len);
-
-  std::cout << bytes_read << std::endl;
   return bytes_read;
 }
 
@@ -190,8 +183,6 @@ Connection::Connection(u16 local_port, u16 remote_port)
             // config info I might need
     Header h = Header(PacketType::HANDSHAKE, 0, _seq_to_send,
                       _last_contiguous_ack, build_ack_bit_map(), 1);
-    std::cout << "_last_contiguous_ack: " << _last_contiguous_ack << " "
-              << h._ack_bit_map << std::endl;
     Packet init_packet = Packet(config_info, h);
     // Read conn_id from server, set it in this-> and send with every
     // subsequent Packet
@@ -209,9 +200,6 @@ void Connection::create_and_queue_for_sending(const std::vector<u8> &data) {
                     _last_contiguous_ack, build_ack_bit_map(), data.size());
   auto packet = std::make_shared<Packet>(data, h);
 
-  std::cout << "packet juices: " << packet->_header._seq << std::endl;
-
-  std::cout << "sent packet" << *packet << std::endl;
 
   _inflight_tracker[_seq_to_send] = packet;
 
@@ -221,15 +209,14 @@ void Connection::create_and_queue_for_sending(const std::vector<u8> &data) {
             << std::hex << build_ack_bit_map() << std::dec
             << "  inflight = " << _inflight_bytes << "/" << _congestion_window
             << "\n";
+
+  ++_seq_to_send;
 }
 
 void Connection::flush_send_queue() {
 
   if (_inflight_bytes >= _congestion_window) {
     return;
-  } else {
-    std::cout << "not congested " << _inflight_bytes << " "
-              << _congestion_window << std::endl;
   }
 
   if (_send_queue.empty()) {
@@ -266,7 +253,6 @@ void Connection::flush_send_queue() {
          sizeof(_remote_addr));
 
   _inflight_bytes += p->size();
-  ++_seq_to_send;
   _send_queue.pop();
 }
 
@@ -278,8 +264,6 @@ Packet Connection::receive_packet() {
   if (packet_size < 0) {
     throw std::runtime_error("no packet");
   }
-
-  std::cout << "in receive_packet after deserializing all" << std::endl;
 
   u8 *ptr = buf.data();
 
@@ -318,16 +302,16 @@ Packet Connection::receive_packet() {
   timestamp_ns = be64toh(timestamp_ns);
   payload_size = ntohl(payload_size);
 
+  if (ptr + payload_size > buf.data() + packet_size) {
+    throw std::runtime_error("malformed packet");
+  }
+
   Header h =
       Header(static_cast<PacketType>(type), conn_id, seq, last_contiguous_ack,
              ack_bit_map, timestamp_ns, payload_size);
 
   update_in_flight_tracker(h._last_contiguous_ack, h._ack_bit_map);
   update_ack_states(seq);
-
-  if (ptr + payload_size > buf.data() + packet_size) {
-    throw std::runtime_error("malformed packet");
-  }
 
   std::vector<u8> v(ptr, ptr + payload_size);
   std::cout << "[RECV] seq = " << seq << "  ack = " << last_contiguous_ack
