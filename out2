@@ -7,25 +7,10 @@ conn_id: 4294967295
 ==================
 sent v
 sent v2
-sent v3
 called start
+sent v3
 called receive_packets
 called flush_send_queue
-[SEND] seq = 3  last_ack = 0  bitmap = 0x0  inflight = 0/12000
-[SEND] seq = 3  last_ack = 0  bitmap = 0x0  inflight = 46/12000
-[SEND] seq = 3  last_ack = 0  bitmap = 0x0  inflight = 92/12000
-[SEND] seq = 3  last_ack = 0  bitmap = 0x0  inflight = 138/12000
-called update_in_flight_tracker with _inflight_tracker size of: 3
-removed from inflightHeader(seq=0, timestamp=8717842573464, ack_bit_map=0)
-_rtt_smoothed => 84824
-_rtt_variance => 148443
-_RTO => 678596
-[RECV] seq = 0  ack = 0  bitmap = 0x0  my_last_ack = 0  ooo size = 0
-called update_in_flight_tracker with _inflight_tracker size of: 2
-just inserting blah
-should be removing some
-[RECV] seq = 1  ack = 0  bitmap = 0x0  my_last_ack = 1  ooo size = 0
-called update_in_flight_tracker with _inflight_tracker size of: 2
-just inserting blah
-should be removing some
-[RECV] seq = 2  ack = 0  bitmap = 0x0  my_last_ack = 2  ooo size = 0
+[SEND] seq = Header(seq=0, timestamp=11179254949653, ack_bit_map=0)
+[SEND] seq = Header(seq=1, timestamp=11179255041566, ack_bit_map=0)
+[SEND] seq = Header(seq=2, timestamp=11179255053892, ack_bit_map=0)

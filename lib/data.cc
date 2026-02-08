@@ -2,6 +2,7 @@
 #include <chrono>
 #include <cstdlib>
 #include <future>
+#include <memory>
 
 Header::Header(PacketType type, u32 conn_id, u64 seq, u64 ack, u64 ack_bit_map,
                u64 timestamp_ns, u32 payload_size)
@@ -28,6 +29,8 @@ u64 Connection::build_ack_bit_map() {
   u64 ONE_ULL = 1;
   u64 bits = 0;
   for (const auto seq : _received_ooo_packet_nums) {
+
+    std::cout << "there is an out of order" << std::endl;
     if (seq <= _last_contiguous_ack) {
       continue;
     }
@@ -36,6 +39,7 @@ u64 Connection::build_ack_bit_map() {
     // i yields too large numbers if sender/receiver starts at a diff time
 
     if (i < 64) {
+      std::cout << "adding to ack_bit_map" << std::endl;
       bits |= (ONE_ULL << i); // Need to get bit position at i in the bit map
     }
   }
@@ -63,12 +67,8 @@ void Connection::update_in_flight_tracker(u64 header_ack, u64 ack_bit_map) {
       << _inflight_tracker.size() << std::endl;
   for (auto it = _inflight_tracker.begin(); it != _inflight_tracker.end();) {
     u32 seq = it->first;
-    u64 sample_rtt =
-        std::chrono::duration_cast<std::chrono::nanoseconds>(
-            std::chrono::steady_clock::now().time_since_epoch())
-            .count() -
-        it->second->_header
-            ._timestamp_ns; // Curr time - inflight packet timestamp
+
+    std::shared_ptr<Packet> currPacket = it->second;
 
     bool erased = false;
 
@@ -84,7 +84,8 @@ void Connection::update_in_flight_tracker(u64 header_ack, u64 ack_bit_map) {
         // Ack was set
         u32 size_gained = it->second->size();
         _inflight_bytes -= size_gained;
-        std::cout << "removed from inflight" << std::endl;
+        std::cout << "removed from inflight" << it->second->_header
+                  << std::endl;
         it = _inflight_tracker.erase(it);
         erased = true;
       } else {
@@ -96,6 +97,14 @@ void Connection::update_in_flight_tracker(u64 header_ack, u64 ack_bit_map) {
     }
 
     if (erased) {
+
+      u64 sample_rtt =
+          std::chrono::duration_cast<std::chrono::nanoseconds>(
+              std::chrono::steady_clock::now().time_since_epoch())
+              .count() -
+          currPacket->_header
+              ._timestamp_ns; // Curr time - inflight packet timestamp
+
       _rtt_smoothed = (1 - ALPHA) * _rtt_smoothed + (ALPHA * sample_rtt);
       _rtt_variance = (1 - GAIN) * _rtt_variance +
                       GAIN * (std::max(sample_rtt, _rtt_smoothed) -
@@ -104,7 +113,8 @@ void Connection::update_in_flight_tracker(u64 header_ack, u64 ack_bit_map) {
 
       std::cout << "_rtt_smoothed => " << _rtt_smoothed << "\n"
                 << "_rtt_variance => " << _rtt_variance << "\n"
-                << "_RTO => " << _RTO << std::endl;
+                << "_RTO => " << _RTO << "sample_rtt => " << sample_rtt
+                << std::endl;
     }
   }
 }
@@ -232,11 +242,6 @@ void Connection::send(const std::vector<u8> &data) {
 void Connection::flush_send_queue() {
   for (;;) {
     // for now busy waiting, but in future use condition variable
-    std::cout << "[SEND] seq = " << _seq_to_send
-              << "  last_ack = " << _last_contiguous_ack << "  bitmap = 0x"
-              << std::hex << build_ack_bit_map() << std::dec
-              << "  inflight = " << _inflight_bytes << "/" << _congestion_window
-              << std::endl;
     if (_inflight_bytes >= _congestion_window) {
       return;
     }
@@ -246,6 +251,8 @@ void Connection::flush_send_queue() {
     }
 
     auto p = _send_queue.front();
+
+    std::cout << "[SEND] seq = " << p->_header << std::endl;
 
     std::vector<u8> buf;
 
@@ -275,6 +282,7 @@ void Connection::flush_send_queue() {
            sizeof(_remote_addr));
 
     _inflight_bytes += p->size();
+
     _send_queue.pop();
   }
 }
