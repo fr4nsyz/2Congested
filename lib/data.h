@@ -146,7 +146,7 @@ class Connection {
 
   void flush_send_queue();
 
-  std::vector<Packet> receive_packets();
+  void receive_packets();
 
 public:
   Connection(u16 local_port, u16 remote_port);

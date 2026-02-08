@@ -1,6 +1,7 @@
 #include "../lib/data.h"
 #include <chrono>
 #include <cstdlib>
+#include <future>
 
 Header::Header(PacketType type, u32 conn_id, u64 seq, u64 ack, u64 ack_bit_map,
                u64 timestamp_ns, u32 payload_size)
@@ -103,7 +104,7 @@ void Connection::update_in_flight_tracker(u64 header_ack, u64 ack_bit_map) {
 
       std::cout << "_rtt_smoothed => " << _rtt_smoothed << "\n"
                 << "_rtt_variance => " << _rtt_variance << "\n"
-                << "_RTO => " << _RTO << "\n";
+                << "_RTO => " << _RTO << std::endl;
     }
   }
 }
@@ -224,160 +225,149 @@ void Connection::send(const std::vector<u8> &data) {
   _inflight_tracker[_seq_to_send] = packet;
 
   _send_queue.push(packet);
-  std::cout << "[SEND] seq = " << _seq_to_send
-            << "  last_ack = " << _last_contiguous_ack << "  bitmap = 0x"
-            << std::hex << build_ack_bit_map() << std::dec
-            << "  inflight = " << _inflight_bytes << "/" << _congestion_window
-            << "\n";
 
   ++_seq_to_send;
 }
 
 void Connection::flush_send_queue() {
+  for (;;) {
+    // for now busy waiting, but in future use condition variable
+    std::cout << "[SEND] seq = " << _seq_to_send
+              << "  last_ack = " << _last_contiguous_ack << "  bitmap = 0x"
+              << std::hex << build_ack_bit_map() << std::dec
+              << "  inflight = " << _inflight_bytes << "/" << _congestion_window
+              << std::endl;
+    if (_inflight_bytes >= _congestion_window) {
+      return;
+    }
 
-  if (_inflight_bytes >= _congestion_window) {
-    return;
+    if (_send_queue.empty()) {
+      return;
+    }
+
+    auto p = _send_queue.front();
+
+    std::vector<u8> buf;
+
+    buf.reserve(1400); // Avoid too many memory reallocations for the push_backs
+
+    // Encode header (296 bits == 40 bytes)
+
+    buf.push_back(p->_header._type); // Single byte, no need to reorder
+
+    serialize_multi_byte(htonl(p->_header._conn_id), buf);
+
+    serialize_multi_byte(htobe64(p->_header._seq), buf);
+
+    serialize_multi_byte(htobe64(p->_header._last_contiguous_ack), buf);
+
+    serialize_multi_byte(htobe64(p->_header._ack_bit_map), buf);
+
+    serialize_multi_byte(htobe64(p->_header._timestamp_ns), buf);
+
+    // We have 1360 bytes left for the rest of the payload
+    serialize_multi_byte(htonl(p->_payload.size()), buf);
+
+    buf.insert(buf.end(), p->_payload.begin(), p->_payload.end());
+
+    sendto(_sockfd, buf.data(), buf.size(), 0,
+           reinterpret_cast<struct sockaddr *>(&_remote_addr),
+           sizeof(_remote_addr));
+
+    _inflight_bytes += p->size();
+    _send_queue.pop();
   }
-
-  if (_send_queue.empty()) {
-    return;
-  }
-
-  auto p = _send_queue.front();
-
-  std::vector<u8> buf;
-
-  buf.reserve(1400); // Avoid too many memory reallocations for the push_backs
-
-  // Encode header (296 bits == 40 bytes)
-
-  buf.push_back(p->_header._type); // Single byte, no need to reorder
-
-  serialize_multi_byte(htonl(p->_header._conn_id), buf);
-
-  serialize_multi_byte(htobe64(p->_header._seq), buf);
-
-  serialize_multi_byte(htobe64(p->_header._last_contiguous_ack), buf);
-
-  serialize_multi_byte(htobe64(p->_header._ack_bit_map), buf);
-
-  serialize_multi_byte(htobe64(p->_header._timestamp_ns), buf);
-
-  // We have 1360 bytes left for the rest of the payload
-  serialize_multi_byte(htonl(p->_payload.size()), buf);
-
-  buf.insert(buf.end(), p->_payload.begin(), p->_payload.end());
-
-  sendto(_sockfd, buf.data(), buf.size(), 0,
-         reinterpret_cast<struct sockaddr *>(&_remote_addr),
-         sizeof(_remote_addr));
-
-  _inflight_bytes += p->size();
-  _send_queue.pop();
 }
 
 void Connection::start() {
-  int base = 250;
-  double scaler = 0.5;
-
   using clock = std::chrono::steady_clock;
   auto next_send_time = clock::now();
 
-  for (;;) {
-    try {
-      this->receive_packets();
-    } catch (std::exception &e) {
-      std::cout << "receive error: " << e.what() << std::endl;
-    }
-
-    auto now = clock::now();
-    if (now >= next_send_time) {
-
-      this->flush_send_queue();
-
-      int delay = std::max(base, 1);
-      next_send_time = now + std::chrono::milliseconds(delay);
-
-      base *= scaler;
-    }
-  }
+  std::cout << "called start" << std::endl;
+  std::future<void> read_fut =
+      std::async(std::launch::async, &Connection::receive_packets, this);
+  std::cout << "called receive_packets" << std::endl;
+  std::future<void> send_fut =
+      std::async(std::launch::async, &Connection::flush_send_queue, this);
+  std::cout << "called flush_send_queue" << std::endl;
 }
 
-std::vector<Packet> Connection::receive_packets() {
+void Connection::receive_packets() {
+  for (;;) {
+    std::vector<Packet> ret;
 
-  _nfds = epoll_wait(_epoll_fd, _events, MAX_EVENTS, 1);
-  if (_nfds == -1) {
-    throw std::runtime_error(
-        std::format("epoll wait experienced an error: {}", _nfds));
-  }
+    _nfds = epoll_wait(_epoll_fd, _events, MAX_EVENTS, -1);
+    if (_nfds == -1) {
+      throw std::runtime_error(
+          std::format("epoll wait experienced an error: {}", _nfds));
+    }
 
-  std::vector<Packet> ret;
+    for (int i = 0; i < _nfds; ++i) {
+      if (_events[i].events & EPOLLIN && _events[i].data.fd == _sockfd) {
+        int packet_size = deserialize_all(_read_buf);
 
-  for (int i = 0; i < _nfds; ++i) {
-    if (_events[i].events & EPOLLIN && _events[i].data.fd == _sockfd) {
-      int packet_size = deserialize_all(_read_buf);
+        if (packet_size < 0) {
+          throw std::runtime_error("no packet");
+        }
 
-      if (packet_size < 0) {
-        throw std::runtime_error("no packet");
+        u8 *ptr = _read_buf.data();
+
+        u8 type = *ptr;
+        ++ptr;
+
+        u32 conn_id;
+        u64 seq;
+        u64 last_contiguous_ack;
+        u64 ack_bit_map;
+        u64 timestamp_ns;
+        u32 payload_size;
+
+        std::memcpy(&conn_id, ptr, sizeof(conn_id));
+        ptr += sizeof(conn_id);
+
+        std::memcpy(&seq, ptr, sizeof(seq));
+        ptr += sizeof(seq);
+
+        std::memcpy(&last_contiguous_ack, ptr, sizeof(last_contiguous_ack));
+        ptr += sizeof(last_contiguous_ack);
+
+        std::memcpy(&ack_bit_map, ptr, sizeof(ack_bit_map));
+        ptr += sizeof(ack_bit_map);
+
+        std::memcpy(&timestamp_ns, ptr, sizeof(timestamp_ns));
+        ptr += sizeof(timestamp_ns);
+
+        std::memcpy(&payload_size, ptr, sizeof(payload_size));
+        ptr += sizeof(payload_size);
+
+        conn_id = ntohl(conn_id);
+        seq = be64toh(seq);
+        last_contiguous_ack = be64toh(last_contiguous_ack);
+        ack_bit_map = be64toh(ack_bit_map);
+        timestamp_ns = be64toh(timestamp_ns);
+        payload_size = ntohl(payload_size);
+
+        if (ptr + payload_size > _read_buf.data() + packet_size) {
+          throw std::runtime_error("malformed packet");
+        }
+
+        Header h = Header(static_cast<PacketType>(type), conn_id, seq,
+                          last_contiguous_ack, ack_bit_map, timestamp_ns,
+                          payload_size);
+
+        update_in_flight_tracker(h._last_contiguous_ack, h._ack_bit_map);
+        update_ack_states(seq);
+
+        std::vector<u8> v(ptr, ptr + payload_size);
+        std::cout << "[RECV] seq = " << seq << "  ack = " << last_contiguous_ack
+                  << "  bitmap = 0x" << std::hex << ack_bit_map << std::dec
+                  << "  my_last_ack = " << _last_contiguous_ack
+                  << "  ooo size = " << _received_ooo_packet_nums.size()
+                  << std::endl;
+        ret.push_back(Packet(v, h));
       }
-
-      u8 *ptr = _read_buf.data();
-
-      u8 type = *ptr;
-      ++ptr;
-
-      u32 conn_id;
-      u64 seq;
-      u64 last_contiguous_ack;
-      u64 ack_bit_map;
-      u64 timestamp_ns;
-      u32 payload_size;
-
-      std::memcpy(&conn_id, ptr, sizeof(conn_id));
-      ptr += sizeof(conn_id);
-
-      std::memcpy(&seq, ptr, sizeof(seq));
-      ptr += sizeof(seq);
-
-      std::memcpy(&last_contiguous_ack, ptr, sizeof(last_contiguous_ack));
-      ptr += sizeof(last_contiguous_ack);
-
-      std::memcpy(&ack_bit_map, ptr, sizeof(ack_bit_map));
-      ptr += sizeof(ack_bit_map);
-
-      std::memcpy(&timestamp_ns, ptr, sizeof(timestamp_ns));
-      ptr += sizeof(timestamp_ns);
-
-      std::memcpy(&payload_size, ptr, sizeof(payload_size));
-      ptr += sizeof(payload_size);
-
-      conn_id = ntohl(conn_id);
-      seq = be64toh(seq);
-      last_contiguous_ack = be64toh(last_contiguous_ack);
-      ack_bit_map = be64toh(ack_bit_map);
-      timestamp_ns = be64toh(timestamp_ns);
-      payload_size = ntohl(payload_size);
-
-      if (ptr + payload_size > _read_buf.data() + packet_size) {
-        throw std::runtime_error("malformed packet");
-      }
-
-      Header h =
-          Header(static_cast<PacketType>(type), conn_id, seq,
-                 last_contiguous_ack, ack_bit_map, timestamp_ns, payload_size);
-
-      update_in_flight_tracker(h._last_contiguous_ack, h._ack_bit_map);
-      update_ack_states(seq);
-
-      std::vector<u8> v(ptr, ptr + payload_size);
-      std::cout << "[RECV] seq = " << seq << "  ack = " << last_contiguous_ack
-                << "  bitmap = 0x" << std::hex << ack_bit_map << std::dec
-                << "  my_last_ack = " << _last_contiguous_ack
-                << "  ooo size = " << _received_ooo_packet_nums.size() << "\n";
-      ret.push_back(Packet(v, h));
     }
   }
-  return ret;
 }
 
 std::ostream &operator<<(std::ostream &os, const Header &h) {
