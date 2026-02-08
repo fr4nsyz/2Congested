@@ -30,14 +30,21 @@ using u8 = uint8_t;
 using u64 = uint64_t;
 
 const int MAX_EVENTS = 2;
+const double ALPHA = 0.125;
+const double GAIN = 0.25;
 
-enum class PacketType : uint8_t {
+enum class PacketType : u8 {
   HANDSHAKE = 0,
   HANDSHAKE_ACK,
+  RETRANSMIT_REQUEST,
+  RETRANSMIT_RESPONSE,
   DATA,
   ACK,
   CLOSE
 };
+
+enum class SECURITY : u8 { TLS };
+// TO BE IMPLEMENTED
 
 constexpr int HEADER_SIZE = 41;
 
@@ -82,7 +89,6 @@ public:
 };
 
 class Connection {
-
   // Socket Things
   int _sockfd;
   int _epoll_fd, _nfds;
@@ -99,8 +105,10 @@ class Connection {
   u64 _last_contiguous_ack; // Last ack marking point where contiguous received
                             // breaks (aka we lose packets)
   u64 _longest_contiguous_sequence;
-  std::chrono::nanoseconds _rtt_smoothed;
-  std::chrono::nanoseconds _rtt_variance;
+  u64 _rtt_smoothed;
+  u64 _rtt_variance;
+  u64 _RTO;
+  u64 _total_packets_rtted;
   u64 _congestion_window;
   u64 _slow_start_threshold;
   u64 _inflight_bytes;
@@ -131,7 +139,7 @@ class Connection {
   }
 
   void update_ack_states(u64 seq);
-
+  void retransmit_packet(Packet &p);
   void update_in_flight_tracker(u64 header_ack, u64 ack_bit_map);
 
   int deserialize_all(std::array<u8, 1400> &buf);

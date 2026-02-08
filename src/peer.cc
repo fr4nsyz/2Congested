@@ -1,4 +1,4 @@
-#include "../common/data.h"
+#include "../lib/data.h"
 #include <future>
 
 int main(int argc, char *argv[]) {

@@ -12,7 +12,10 @@ sent v2
 [SEND] seq = 2  last_ack = 0  bitmap = 0x0  inflight = 0/12000
 sent v3
 called update_in_flight_tracker with _inflight_tracker size of: 3
-removed from inflight
+removed from inflightHeader(seq=0, timestamp=6342305169441, ack_bit_map=0)
+_rtt_smoothed => 179213
+_rtt_variance => 313622
+_RTO => 1433701
 [RECV] seq = 0  ack = 0  bitmap = 0x0  my_last_ack = 0  ooo size = 0
 called update_in_flight_tracker with _inflight_tracker size of: 2
 just inserting blah

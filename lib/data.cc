@@ -1,6 +1,6 @@
-#include "../common/data.h"
-#include <stdexcept>
-#include <sys/epoll.h>
+#include "../lib/data.h"
+#include <chrono>
+#include <cstdlib>
 
 Header::Header(PacketType type, u32 conn_id, u64 seq, u64 ack, u64 ack_bit_map,
                u64 timestamp_ns, u32 payload_size)
@@ -62,12 +62,21 @@ void Connection::update_in_flight_tracker(u64 header_ack, u64 ack_bit_map) {
       << _inflight_tracker.size() << std::endl;
   for (auto it = _inflight_tracker.begin(); it != _inflight_tracker.end();) {
     u32 seq = it->first;
+    u64 sample_rtt =
+        std::chrono::duration_cast<std::chrono::nanoseconds>(
+            std::chrono::steady_clock::now().time_since_epoch())
+            .count() -
+        it->second->_header
+            ._timestamp_ns; // Curr time - inflight packet timestamp
+
+    bool erased = false;
 
     if (seq <= header_ack) {
       u32 size_gained = it->second->size();
-      std::cout << "removed from inflight" << std::endl;
+      std::cout << "removed from inflight" << it->second->_header << std::endl;
       _inflight_bytes -= size_gained;
       it = _inflight_tracker.erase(it);
+      erased = true;
     } else if (seq <= (header_ack + 64)) {
       u64 offset = (seq - (header_ack + 1));
       if ((ack_bit_map >> offset) & 1) {
@@ -76,12 +85,25 @@ void Connection::update_in_flight_tracker(u64 header_ack, u64 ack_bit_map) {
         _inflight_bytes -= size_gained;
         std::cout << "removed from inflight" << std::endl;
         it = _inflight_tracker.erase(it);
+        erased = true;
       } else {
         // Ack wasn't set for seq, so do not remove
         ++it;
       }
     } else {
       ++it;
+    }
+
+    if (erased) {
+      _rtt_smoothed = (1 - ALPHA) * _rtt_smoothed + (ALPHA * sample_rtt);
+      _rtt_variance = (1 - GAIN) * _rtt_variance +
+                      GAIN * (std::max(sample_rtt, _rtt_smoothed) -
+                              std::min(sample_rtt, _rtt_smoothed));
+      _RTO = _rtt_smoothed + 4 * _rtt_variance;
+
+      std::cout << "_rtt_smoothed => " << _rtt_smoothed << "\n"
+                << "_rtt_variance => " << _rtt_variance << "\n"
+                << "_RTO => " << _RTO << "\n";
     }
   }
 }
@@ -103,8 +125,7 @@ int Connection::deserialize_all(
 Connection::Connection(u16 local_port, u16 remote_port)
     : _local_port(local_port), _remote_port(remote_port), _conn_id(UINT32_MAX),
       _seq_to_send(0), _last_contiguous_ack(0), _longest_contiguous_sequence(0),
-      _rtt_smoothed(std::chrono::nanoseconds(0)),
-      _rtt_variance(std::chrono::nanoseconds(0)), _congestion_window(12000),
+      _rtt_smoothed(0), _rtt_variance(0), _RTO(0), _congestion_window(12000),
       _slow_start_threshold(UINT64_MAX), _inflight_bytes(0) {
   // _conn_id is set to UINT32_MAX at the beginnning just to create an
   // invalid starting state. It gets updated in the init_handshake
