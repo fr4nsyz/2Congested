@@ -1,4 +1,4 @@
-#include "../common/data.h"
+#include "../lib/data.h"
 #include <future>
 
 int main(int argc, char *argv[]) {
@@ -24,4 +24,6 @@ int main(int argc, char *argv[]) {
   std::cout << "sent v2" << std::endl;
   c.send(v3);
   std::cout << "sent v3" << std::endl;
+
+  f.get();
 }

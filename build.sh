@@ -1,1 +1,1 @@
-g++ -std=c++20 src/peer.cc common/data.cc -o app
+g++ -std=c++23 src/peer.cc lib/data.cc -o app

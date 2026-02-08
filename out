@@ -5,14 +5,20 @@ Local:  3000:3000
 Remote: 3001:3001
 conn_id: 4294967295
 ==================
-[SEND] seq = 0  last_ack = 0  bitmap = 0x0  inflight = 0/12000
 sent v
-[SEND] seq = 1  last_ack = 0  bitmap = 0x0  inflight = 0/12000
 sent v2
-[SEND] seq = 2  last_ack = 0  bitmap = 0x0  inflight = 0/12000
-sent v3
+called startsent v3
+
+called receive_packets
+called flush_send_queue
+[SEND] seq = Header(seq=0, timestamp=11179253378076, ack_bit_map=0)
+[SEND] seq = Header(seq=1, timestamp=11179253439012, ack_bit_map=0)
+[SEND] seq = Header(seq=2, timestamp=11179253445031, ack_bit_map=0)
 called update_in_flight_tracker with _inflight_tracker size of: 3
-removed from inflight
+removed from inflightHeader(seq=0, timestamp=11179253378076, ack_bit_map=0)
+_rtt_smoothed => 257514
+_rtt_variance => 450649
+_RTO => 2060110sample_rtt => 2060113
 [RECV] seq = 0  ack = 0  bitmap = 0x0  my_last_ack = 0  ooo size = 0
 called update_in_flight_tracker with _inflight_tracker size of: 2
 just inserting blah
@@ -21,3 +27,4 @@ should be removing some
 called update_in_flight_tracker with _inflight_tracker size of: 2
 just inserting blah
 should be removing some
+[RECV] seq = 2  ack = 0  bitmap = 0x0  my_last_ack = 2  ooo size = 0

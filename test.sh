@@ -4,5 +4,5 @@ pid1=$!
 ./app 3001 3000 > out2 &
 pid2=$!
 
-sleep 60
+sleep 20
 kill $pid1 $pid2
