@@ -5,12 +5,358 @@ Local:  3001:3001
 Remote: 3000:3000
 conn_id: 4294967295
 ==================
-sent v
-sent v2
 called start
-sent v3
 called receive_packets
 called flush_send_queue
-[SEND] seq = Header(seq=0, timestamp=11179254949653, ack_bit_map=0)
-[SEND] seq = Header(seq=1, timestamp=11179255041566, ack_bit_map=0)
-[SEND] seq = Header(seq=2, timestamp=11179255053892, ack_bit_map=0)
+called update_in_flight_tracker with _inflight_tracker size of: 40
+acknowledgedHeader(seq=0, timestamp=8779434772751, ack_bit_map=0)
+[slow-start] ACKed seq=0 cwnd now = 7000 inflight = 322
+_rtt_smoothed => 93498
+_rtt_variance => 163622
+_RTO => 747986sample_rtt => 747987
+sending_empty_ack
+[RECV] seq = 0  ack = 0  bitmap = 0x0  my_last_ack = 0  ooo size = 0
+called update_in_flight_tracker with _inflight_tracker size of: 39
+just inserting blah
+should be removing some
+sending_empty_ack
+[RECV] seq = 1  ack = 0  bitmap = 0x0  my_last_ack = 1  ooo size = 0
+called update_in_flight_tracker with _inflight_tracker size of: 39
+just inserting blah
+should be removing some
+sending_empty_ack
+[RECV] seq = 2  ack = 0  bitmap = 0x0  my_last_ack = 2  ooo size = 0
+called update_in_flight_tracker with _inflight_tracker size of: 39
+just inserting blah
+should be removing some
+sending_empty_ack
+[RECV] seq = 3  ack = 0  bitmap = 0x0  my_last_ack = 3  ooo size = 0
+called update_in_flight_tracker with _inflight_tracker size of: 39
+just inserting blah
+should be removing some
+sending_empty_ack
+[RECV] seq = 4  ack = 0  bitmap = 0x0  my_last_ack = 4  ooo size = 0
+called update_in_flight_tracker with _inflight_tracker size of: 39
+just inserting blah
+should be removing some
+sending_empty_ack
+[RECV] seq = 5  ack = 0  bitmap = 0x0  my_last_ack = 5  ooo size = 0
+called update_in_flight_tracker with _inflight_tracker size of: 39
+just inserting blah
+should be removing some
+sending_empty_ack
+[RECV] seq = 6  ack = 0  bitmap = 0x0  my_last_ack = 6  ooo size = 0
+called update_in_flight_tracker with _inflight_tracker size of: 39
+just inserting blah
+should be removing some
+sending_empty_ack
+[RECV] seq = 7  ack = 0  bitmap = 0x0  my_last_ack = 7  ooo size = 0
+called update_in_flight_tracker with _inflight_tracker size of: 39
+just inserting blah
+should be removing some
+sending_empty_ack
+[RECV] seq = 8  ack = 0  bitmap = 0x0  my_last_ack = 8  ooo size = 0
+called update_in_flight_tracker with _inflight_tracker size of: 39
+just inserting blah
+should be removing some
+sending_empty_ack
+[RECV] seq = 9  ack = 0  bitmap = 0x0  my_last_ack = 9  ooo size = 0
+called update_in_flight_tracker with _inflight_tracker size of: 39
+just inserting blah
+should be removing some
+sending_empty_ack
+[RECV] seq = 10  ack = 0  bitmap = 0x0  my_last_ack = 10  ooo size = 0
+called update_in_flight_tracker with _inflight_tracker size of: 39
+just inserting blah
+should be removing some
+sending_empty_ack
+[RECV] seq = 11  ack = 0  bitmap = 0x0  my_last_ack = 11  ooo size = 0
+called update_in_flight_tracker with _inflight_tracker size of: 39
+just inserting blah
+should be removing some
+sending_empty_ack
+[RECV] seq = 12  ack = 0  bitmap = 0x0  my_last_ack = 12  ooo size = 0
+called update_in_flight_tracker with _inflight_tracker size of: 39
+just inserting blah
+should be removing some
+sending_empty_ack
+[RECV] seq = 13  ack = 0  bitmap = 0x0  my_last_ack = 13  ooo size = 0
+called update_in_flight_tracker with _inflight_tracker size of: 39
+just inserting blah
+should be removing some
+sending_empty_ack
+[RECV] seq = 14  ack = 0  bitmap = 0x0  my_last_ack = 14  ooo size = 0
+called update_in_flight_tracker with _inflight_tracker size of: 39
+just inserting blah
+should be removing some
+sending_empty_ack
+[RECV] seq = 15  ack = 0  bitmap = 0x0  my_last_ack = 15  ooo size = 0
+called update_in_flight_tracker with _inflight_tracker size of: 39
+just inserting blah
+should be removing some
+sending_empty_ack
+[RECV] seq = 16  ack = 0  bitmap = 0x0  my_last_ack = 16  ooo size = 0
+called update_in_flight_tracker with _inflight_tracker size of: 39
+just inserting blah
+should be removing some
+sending_empty_ack
+[RECV] seq = 17  ack = 0  bitmap = 0x0  my_last_ack = 17  ooo size = 0
+called update_in_flight_tracker with _inflight_tracker size of: 39
+just inserting blah
+should be removing some
+sending_empty_ack
+[RECV] seq = 18  ack = 0  bitmap = 0x0  my_last_ack = 18  ooo size = 0
+called update_in_flight_tracker with _inflight_tracker size of: 39
+just inserting blah
+should be removing some
+sending_empty_ack
+[RECV] seq = 19  ack = 0  bitmap = 0x0  my_last_ack = 19  ooo size = 0
+called update_in_flight_tracker with _inflight_tracker size of: 39
+just inserting blah
+should be removing some
+sending_empty_ack
+[RECV] seq = 20  ack = 0  bitmap = 0x0  my_last_ack = 20  ooo size = 0
+called update_in_flight_tracker with _inflight_tracker size of: 39
+just inserting blah
+should be removing some
+sending_empty_ack
+[RECV] seq = 21  ack = 0  bitmap = 0x0  my_last_ack = 21  ooo size = 0
+called update_in_flight_tracker with _inflight_tracker size of: 39
+just inserting blah
+should be removing some
+sending_empty_ack
+[RECV] seq = 22  ack = 0  bitmap = 0x0  my_last_ack = 22  ooo size = 0
+called update_in_flight_tracker with _inflight_tracker size of: 39
+just inserting blah
+should be removing some
+sending_empty_ack
+[RECV] seq = 23  ack = 0  bitmap = 0x0  my_last_ack = 23  ooo size = 0
+called update_in_flight_tracker with _inflight_tracker size of: 39
+just inserting blah
+should be removing some
+sending_empty_ack
+[RECV] seq = 24  ack = 0  bitmap = 0x0  my_last_ack = 24  ooo size = 0
+called update_in_flight_tracker with _inflight_tracker size of: 39
+just inserting blah
+should be removing some
+sending_empty_ack
+[RECV] seq = 25  ack = 0  bitmap = 0x0  my_last_ack = 25  ooo size = 0
+called update_in_flight_tracker with _inflight_tracker size of: 39
+just inserting blah
+should be removing some
+sending_empty_ack
+[RECV] seq = 26  ack = 0  bitmap = 0x0  my_last_ack = 26  ooo size = 0
+called update_in_flight_tracker with _inflight_tracker size of: 39
+just inserting blah
+should be removing some
+sending_empty_ack
+[RECV] seq = 27  ack = 0  bitmap = 0x0  my_last_ack = 27  ooo size = 0
+called update_in_flight_tracker with _inflight_tracker size of: 39
+just inserting blah
+should be removing some
+sending_empty_ack
+[RECV] seq = 28  ack = 0  bitmap = 0x0  my_last_ack = 28  ooo size = 0
+called update_in_flight_tracker with _inflight_tracker size of: 39
+just inserting blah
+should be removing some
+sending_empty_ack
+[RECV] seq = 29  ack = 0  bitmap = 0x0  my_last_ack = 29  ooo size = 0
+called update_in_flight_tracker with _inflight_tracker size of: 39
+just inserting blah
+should be removing some
+sending_empty_ack
+[RECV] seq = 30  ack = 0  bitmap = 0x0  my_last_ack = 30  ooo size = 0
+called update_in_flight_tracker with _inflight_tracker size of: 39
+just inserting blah
+should be removing some
+sending_empty_ack
+[RECV] seq = 31  ack = 0  bitmap = 0x0  my_last_ack = 31  ooo size = 0
+called update_in_flight_tracker with _inflight_tracker size of: 39
+just inserting blah
+should be removing some
+sending_empty_ack
+[RECV] seq = 32  ack = 0  bitmap = 0x0  my_last_ack = 32  ooo size = 0
+called update_in_flight_tracker with _inflight_tracker size of: 39
+just inserting blah
+should be removing some
+sending_empty_ack
+[RECV] seq = 33  ack = 0  bitmap = 0x0  my_last_ack = 33  ooo size = 0
+called update_in_flight_tracker with _inflight_tracker size of: 39
+just inserting blah
+should be removing some
+sending_empty_ack
+[RECV] seq = 34  ack = 0  bitmap = 0x0  my_last_ack = 34  ooo size = 0
+called update_in_flight_tracker with _inflight_tracker size of: 39
+just inserting blah
+should be removing some
+sending_empty_ack
+[RECV] seq = 35  ack = 0  bitmap = 0x0  my_last_ack = 35  ooo size = 0
+called update_in_flight_tracker with _inflight_tracker size of: 39
+just inserting blah
+should be removing some
+sending_empty_ack
+[RECV] seq = 36  ack = 0  bitmap = 0x0  my_last_ack = 36  ooo size = 0
+called update_in_flight_tracker with _inflight_tracker size of: 39
+just inserting blah
+should be removing some
+sending_empty_ack
+[RECV] seq = 37  ack = 0  bitmap = 0x0  my_last_ack = 37  ooo size = 0
+called update_in_flight_tracker with _inflight_tracker size of: 39
+just inserting blah
+should be removing some
+sending_empty_ack
+[RECV] seq = 38  ack = 0  bitmap = 0x0  my_last_ack = 38  ooo size = 0
+called update_in_flight_tracker with _inflight_tracker size of: 39
+just inserting blah
+should be removing some
+sending_empty_ack
+[RECV] seq = 39  ack = 0  bitmap = 0x0  my_last_ack = 39  ooo size = 0
+called update_in_flight_tracker with _inflight_tracker size of: 39
+just inserting blah
+should be removing some
+sending_empty_ack
+[RECV] seq = 40  ack = 0  bitmap = 0x0  my_last_ack = 40  ooo size = 0
+called update_in_flight_tracker with _inflight_tracker size of: 39
+acknowledgedHeader(seq=1, timestamp=8779434784095, ack_bit_map=0)
+[slow-start] ACKed seq=1 cwnd now = 8400 inflight = 2481
+_rtt_smoothed => 287421
+_rtt_variance => 462082
+_RTO => 2135749sample_rtt => 1644884
+sending_empty_ack
+[RECV] seq = 40  ack = 1  bitmap = 0x0  my_last_ack = 40  ooo size = 0
+called update_in_flight_tracker with _inflight_tracker size of: 38
+acknowledgedHeader(seq=2, timestamp=8779434786672, ack_bit_map=0)
+[slow-start] ACKed seq=2 cwnd now = 9800 inflight = 2435
+_rtt_smoothed => 459708
+_rtt_variance => 648065
+_RTO => 3051968sample_rtt => 1665723
+sending_empty_ack
+[RECV] seq = 40  ack = 2  bitmap = 0x0  my_last_ack = 40  ooo size = 0
+called update_in_flight_tracker with _inflight_tracker size of: 37
+acknowledgedHeader(seq=3, timestamp=8779434788438, ack_bit_map=0)
+[slow-start] ACKed seq=3 cwnd now = 11200 inflight = 2389
+_rtt_smoothed => 613075
+_rtt_variance => 754442
+_RTO => 3630843sample_rtt => 1686650
+sending_empty_ack
+[RECV] seq = 40  ack = 3  bitmap = 0x0  my_last_ack = 40  ooo size = 0
+called update_in_flight_tracker with _inflight_tracker size of: 36
+acknowledgedHeader(seq=4, timestamp=8779434790134, ack_bit_map=0)
+[slow-start] ACKed seq=4 cwnd now = 12600 inflight = 2343
+_rtt_smoothed => 749791
+_rtt_variance => 805085
+_RTO => 3970131sample_rtt => 1706807
+sending_empty_ack
+[RECV] seq = 40  ack = 4  bitmap = 0x0  my_last_ack = 40  ooo size = 0
+called update_in_flight_tracker with _inflight_tracker size of: 35
+acknowledgedHeader(seq=5, timestamp=8779434791796, ack_bit_map=0)
+[slow-start] ACKed seq=5 cwnd now = 14000 inflight = 2297
+_rtt_smoothed => 871923
+_rtt_variance => 817545
+_RTO => 4142103sample_rtt => 1726850
+sending_empty_ack
+[RECV] seq = 40  ack = 5  bitmap = 0x0  my_last_ack = 40  ooo size = 0
+called update_in_flight_tracker with _inflight_tracker size of: 34
+acknowledgedHeader(seq=6, timestamp=8779434793414, ack_bit_map=0)
+[slow-start] ACKed seq=6 cwnd now = 15400 inflight = 2251
+_rtt_smoothed => 981341
+_rtt_variance => 804641
+_RTO => 4199905sample_rtt => 1747272
+sending_empty_ack
+[RECV] seq = 40  ack = 6  bitmap = 0x0  my_last_ack = 40  ooo size = 0
+called update_in_flight_tracker with _inflight_tracker size of: 33
+acknowledgedHeader(seq=7, timestamp=8779434795014, ack_bit_map=0)
+[slow-start] ACKed seq=7 cwnd now = 16800 inflight = 2205
+_rtt_smoothed => 1079685
+_rtt_variance => 775583
+_RTO => 4182017sample_rtt => 1768094
+sending_empty_ack
+[RECV] seq = 40  ack = 7  bitmap = 0x0  my_last_ack = 40  ooo size = 0
+called update_in_flight_tracker with _inflight_tracker size of: 32
+acknowledgedHeader(seq=8, timestamp=8779434796477, ack_bit_map=0)
+[slow-start] ACKed seq=8 cwnd now = 18200 inflight = 2159
+_rtt_smoothed => 1168279
+_rtt_variance => 736727
+_RTO => 4115187sample_rtt => 1788438
+sending_empty_ack
+[RECV] seq = 40  ack = 8  bitmap = 0x0  my_last_ack = 40  ooo size = 0
+called update_in_flight_tracker with _inflight_tracker size of: 31
+acknowledgedHeader(seq=9, timestamp=8779434797864, ack_bit_map=0)
+[slow-start] ACKed seq=9 cwnd now = 19600 inflight = 2113
+_rtt_smoothed => 1248336
+_rtt_variance => 692645
+_RTO => 4018916sample_rtt => 1808735
+sending_empty_ack
+[RECV] seq = 40  ack = 9  bitmap = 0x0  my_last_ack = 40  ooo size = 0
+called update_in_flight_tracker with _inflight_tracker size of: 30
+acknowledgedHeader(seq=10, timestamp=8779434799212, ack_bit_map=0)
+[slow-start] ACKed seq=10 cwnd now = 21000 inflight = 2067
+_rtt_smoothed => 1320901
+_rtt_variance => 646473
+_RTO => 3906793sample_rtt => 1828858
+sending_empty_ack
+[RECV] seq = 40  ack = 10  bitmap = 0x0  my_last_ack = 40  ooo size = 0
+called update_in_flight_tracker with _inflight_tracker size of: 29
+acknowledgedHeader(seq=11, timestamp=8779434800516, ack_bit_map=0)
+[slow-start] ACKed seq=11 cwnd now = 22400 inflight = 2021
+_rtt_smoothed => 1387467
+_rtt_variance => 601346
+_RTO => 3792851sample_rtt => 1853432
+sending_empty_ack
+[RECV] seq = 40  ack = 11  bitmap = 0x0  my_last_ack = 40  ooo size = 0
+called update_in_flight_tracker with _inflight_tracker size of: 28
+acknowledgedHeader(seq=12, timestamp=8779434806681, ack_bit_map=0)
+[slow-start] ACKed seq=12 cwnd now = 23800 inflight = 1975
+_rtt_smoothed => 1447646
+_rtt_variance => 556324
+_RTO => 3672942sample_rtt => 1868904
+sending_empty_ack
+[RECV] seq = 40  ack = 12  bitmap = 0x0  my_last_ack = 40  ooo size = 0
+called update_in_flight_tracker with _inflight_tracker size of: 27
+acknowledgedHeader(seq=13, timestamp=8779434808445, ack_bit_map=0)
+[slow-start] ACKed seq=13 cwnd now = 25200 inflight = 1929
+_rtt_smoothed => 1502768
+_rtt_variance => 513708
+_RTO => 3557600sample_rtt => 1888629
+sending_empty_ack
+[RECV] seq = 40  ack = 13  bitmap = 0x0  my_last_ack = 40  ooo size = 0
+called update_in_flight_tracker with _inflight_tracker size of: 26
+acknowledgedHeader(seq=14, timestamp=8779434813471, ack_bit_map=0)
+[slow-start] ACKed seq=14 cwnd now = 26600 inflight = 1883
+_rtt_smoothed => 1552981
+_rtt_variance => 473154
+_RTO => 3445597sample_rtt => 1904473
+sending_empty_ack
+[RECV] seq = 40  ack = 14  bitmap = 0x0  my_last_ack = 40  ooo size = 0
+called update_in_flight_tracker with _inflight_tracker size of: 25
+acknowledgedHeader(seq=15, timestamp=8779434815192, ack_bit_map=0)
+[slow-start] ACKed seq=15 cwnd now = 28000 inflight = 1837
+_rtt_smoothed => 1599362
+_rtt_variance => 436033
+_RTO => 3343494sample_rtt => 1924034
+sending_empty_ack
+[RECV] seq = 40  ack = 15  bitmap = 0x0  my_last_ack = 40  ooo size = 0
+called update_in_flight_tracker with _inflight_tracker size of: 24
+acknowledgedHeader(seq=16, timestamp=8779434816892, ack_bit_map=0)
+[slow-start] ACKed seq=16 cwnd now = 29400 inflight = 1791
+_rtt_smoothed => 1642453
+_rtt_variance => 402435
+_RTO => 3252193sample_rtt => 1944096
+sending_empty_ack
+[RECV] seq = 40  ack = 16  bitmap = 0x0  my_last_ack = 40  ooo size = 0
+called update_in_flight_tracker with _inflight_tracker size of: 23
+acknowledgedHeader(seq=17, timestamp=8779434818378, ack_bit_map=0)
+[slow-start] ACKed seq=17 cwnd now = 30800 inflight = 1745
+_rtt_smoothed => 1682572
+_rtt_variance => 372034
+_RTO => 3170708sample_rtt => 1963405
+sending_empty_ack
+[RECV] seq = 40  ack = 17  bitmap = 0x0  my_last_ack = 40  ooo size = 0
+called update_in_flight_tracker with _inflight_tracker size of: 22
+acknowledgedHeader(seq=18, timestamp=8779434819899, ack_bit_map=0)
+[slow-start] ACKed seq=18 cwnd now = 32200 inflight = 1699
+_rtt_smoothed => 1720069
+_rtt_variance => 344646
+_RTO => 3098653sample_rtt => 1982554
+sending_empty_ack
+[RECV] seq = 40  ack = 18  bitmap = 0x0  my_last_ack = 40  ooo size = 0
