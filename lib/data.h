@@ -11,6 +11,7 @@
 #include <exception>
 #include <fcntl.h>
 #include <format>
+#include <future>
 #include <iostream>
 #include <memory>
 #include <netinet/in.h>
@@ -32,6 +33,8 @@ using u64 = uint64_t;
 const int MAX_EVENTS = 2;
 const double ALPHA = 0.125;
 const double GAIN = 0.25;
+
+const u32 MSS = 1400;
 
 enum class PacketType : u8 {
   HANDSHAKE = 0,
@@ -117,6 +120,9 @@ class Connection {
   std::queue<std::shared_ptr<Packet>> _send_queue;
   std::array<u8, 1400> _read_buf;
 
+    std::future<void> _read_fut;
+    std::future<void> _send_fut;
+
   // Deleting because we don't want deep copies
   Connection(const Connection &) = delete;
   Connection &operator=(const Connection &) = delete;
@@ -125,6 +131,7 @@ class Connection {
   Connection &operator=(Connection &&) = default;
 
   u64 build_ack_bit_map();
+  void send_empty_ack();
 
   template <typename T>
   void serialize_multi_byte(const T &v, std::vector<u8> &buf) {
@@ -147,6 +154,7 @@ class Connection {
   void flush_send_queue();
 
   void receive_packets();
+
 
 public:
   Connection(u16 local_port, u16 remote_port);

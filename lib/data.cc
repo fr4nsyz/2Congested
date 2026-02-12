@@ -3,6 +3,7 @@
 #include <cstdlib>
 #include <future>
 #include <memory>
+#include <vector>
 
 Header::Header(PacketType type, u32 conn_id, u64 seq, u64 ack, u64 ack_bit_map,
                u64 timestamp_ns, u32 payload_size)
@@ -30,7 +31,7 @@ u64 Connection::build_ack_bit_map() {
   u64 bits = 0;
   for (const auto seq : _received_ooo_packet_nums) {
 
-    std::cout << "there is an out of order" << std::endl;
+    std::cout << "adding to ack_bit_map" << std::endl;
     if (seq <= _last_contiguous_ack) {
       continue;
     }
@@ -44,6 +45,14 @@ u64 Connection::build_ack_bit_map() {
     }
   }
   return bits;
+}
+void Connection::send_empty_ack() {
+  std::cout << "sending_empty_ack" << std::endl;
+  Header h(PacketType::ACK, _conn_id, _seq_to_send, _last_contiguous_ack,
+           build_ack_bit_map(), 0);
+  std::vector<u8> empty;
+  auto pkt = std::make_shared<Packet>(empty, h);
+  _send_queue.push(pkt);
 }
 
 void Connection::update_ack_states(u64 seq) {
@@ -66,26 +75,24 @@ void Connection::update_in_flight_tracker(u64 header_ack, u64 ack_bit_map) {
       << "called update_in_flight_tracker with _inflight_tracker size of: "
       << _inflight_tracker.size() << std::endl;
   for (auto it = _inflight_tracker.begin(); it != _inflight_tracker.end();) {
-    u32 seq = it->first;
+    u64 seq = it->first;
 
     std::shared_ptr<Packet> currPacket = it->second;
 
     bool erased = false;
 
+    u32 size_gained = 0;
     if (seq <= header_ack) {
-      u32 size_gained = it->second->size();
-      std::cout << "removed from inflight" << it->second->_header << std::endl;
-      _inflight_bytes -= size_gained;
+      std::cout << "acknowledged" << it->second->_header << std::endl;
       it = _inflight_tracker.erase(it);
+      size_gained = it->second->size();
       erased = true;
     } else if (seq <= (header_ack + 64)) {
       u64 offset = (seq - (header_ack + 1));
       if ((ack_bit_map >> offset) & 1) {
         // Ack was set
-        u32 size_gained = it->second->size();
-        _inflight_bytes -= size_gained;
-        std::cout << "removed from inflight" << it->second->_header
-                  << std::endl;
+        size_gained = it->second->size();
+        std::cout << "acknowledged" << std::endl;
         it = _inflight_tracker.erase(it);
         erased = true;
       } else {
@@ -97,6 +104,16 @@ void Connection::update_in_flight_tracker(u64 header_ack, u64 ack_bit_map) {
     }
 
     if (erased) {
+
+      if (_inflight_bytes >= size_gained) {
+        _inflight_bytes -= size_gained;
+      }
+      if (_inflight_bytes + MSS <= _congestion_window) {
+        _congestion_window += MSS;
+        std::cout << "[slow-start] ACKed seq=" << seq
+                  << " cwnd now = " << _congestion_window
+                  << " inflight = " << _inflight_bytes << std::endl;
+      }
 
       u64 sample_rtt =
           std::chrono::duration_cast<std::chrono::nanoseconds>(
@@ -136,7 +153,7 @@ int Connection::deserialize_all(
 Connection::Connection(u16 local_port, u16 remote_port)
     : _local_port(local_port), _remote_port(remote_port), _conn_id(UINT32_MAX),
       _seq_to_send(0), _last_contiguous_ack(0), _longest_contiguous_sequence(0),
-      _rtt_smoothed(0), _rtt_variance(0), _RTO(0), _congestion_window(12000),
+      _rtt_smoothed(0), _rtt_variance(0), _RTO(0), _congestion_window(MSS * 4),
       _slow_start_threshold(UINT64_MAX), _inflight_bytes(0) {
   // _conn_id is set to UINT32_MAX at the beginnning just to create an
   // invalid starting state. It gets updated in the init_handshake
@@ -243,6 +260,8 @@ void Connection::flush_send_queue() {
   for (;;) {
     // for now busy waiting, but in future use condition variable
     if (_inflight_bytes >= _congestion_window) {
+      std::cout << "[cwnd limit] inflight=" << _inflight_bytes
+                << " >= cwnd=" << _congestion_window << " waiting for acks\n";
       return;
     }
 
@@ -252,7 +271,7 @@ void Connection::flush_send_queue() {
 
     auto p = _send_queue.front();
 
-    std::cout << "[SEND] seq = " << p->_header << std::endl;
+    // std::cout << "[SEND] seq = " << p->_header << std::endl;
 
     std::vector<u8> buf;
 
@@ -289,13 +308,12 @@ void Connection::flush_send_queue() {
 
 void Connection::start() {
   using clock = std::chrono::steady_clock;
-  auto next_send_time = clock::now();
 
   std::cout << "called start" << std::endl;
-  std::future<void> read_fut =
+  _read_fut =
       std::async(std::launch::async, &Connection::receive_packets, this);
   std::cout << "called receive_packets" << std::endl;
-  std::future<void> send_fut =
+  _send_fut =
       std::async(std::launch::async, &Connection::flush_send_queue, this);
   std::cout << "called flush_send_queue" << std::endl;
 }
@@ -365,6 +383,7 @@ void Connection::receive_packets() {
 
         update_in_flight_tracker(h._last_contiguous_ack, h._ack_bit_map);
         update_ack_states(seq);
+        send_empty_ack();
 
         std::vector<u8> v(ptr, ptr + payload_size);
         std::cout << "[RECV] seq = " << seq << "  ack = " << last_contiguous_ack

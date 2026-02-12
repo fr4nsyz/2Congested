@@ -1,5 +1,7 @@
 #include "../lib/data.h"
+#include <chrono>
 #include <future>
+#include <thread>
 
 int main(int argc, char *argv[]) {
 
@@ -18,12 +20,9 @@ int main(int argc, char *argv[]) {
 
   std::future<void> f = std::async(std::launch::async, &Connection::start, &c);
 
-  c.send(v);
-  std::cout << "sent v" << std::endl;
-  c.send(v2);
-  std::cout << "sent v2" << std::endl;
-  c.send(v3);
-  std::cout << "sent v3" << std::endl;
+  for (int i = 0; i < 40; ++i) {
+    c.send(v);
+  }
 
   f.get();
 }
