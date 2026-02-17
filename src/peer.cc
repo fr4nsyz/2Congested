@@ -1,7 +1,4 @@
-#include "../lib/data.h"
-#include <chrono>
-#include <future>
-#include <thread>
+#include "../include/data.h"
 
 int main(int argc, char *argv[]) {
 
