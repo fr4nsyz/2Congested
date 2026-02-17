@@ -31,7 +31,6 @@ u64 Connection::build_ack_bit_map() {
   u64 bits = 0;
   for (const auto seq : _received_ooo_packet_nums) {
 
-    std::cout << "adding to ack_bit_map" << std::endl;
     if (seq <= _last_contiguous_ack) {
       continue;
     }
@@ -40,14 +39,12 @@ u64 Connection::build_ack_bit_map() {
     // i yields too large numbers if sender/receiver starts at a diff time
 
     if (i < 64) {
-      std::cout << "adding to ack_bit_map" << std::endl;
       bits |= (ONE_ULL << i); // Need to get bit position at i in the bit map
     }
   }
   return bits;
 }
 void Connection::send_empty_ack() {
-  std::cout << "sending_empty_ack" << std::endl;
   Header h(PacketType::ACK, _conn_id, _seq_to_send, _last_contiguous_ack,
            build_ack_bit_map(), 0);
   std::vector<u8> empty;
@@ -60,20 +57,15 @@ void Connection::update_ack_states(u64 seq) {
     return; // duplicate / old
   }
 
-  std::cout << "just inserting blah" << std::endl;
   _received_ooo_packet_nums.insert(seq);
 
   while (_received_ooo_packet_nums.count(_last_contiguous_ack + 1)) {
-    std::cout << "should be removing some" << std::endl;
     _received_ooo_packet_nums.erase(_last_contiguous_ack + 1);
     _last_contiguous_ack++;
   }
 }
 
 void Connection::update_in_flight_tracker(u64 header_ack, u64 ack_bit_map) {
-  std::cout
-      << "called update_in_flight_tracker with _inflight_tracker size of: "
-      << _inflight_tracker.size() << std::endl;
   for (auto it = _inflight_tracker.begin(); it != _inflight_tracker.end();) {
     u64 seq = it->first;
 
@@ -83,16 +75,14 @@ void Connection::update_in_flight_tracker(u64 header_ack, u64 ack_bit_map) {
 
     u32 size_gained = 0;
     if (seq <= header_ack) {
-      std::cout << "acknowledged" << it->second->_header << std::endl;
-      it = _inflight_tracker.erase(it);
       size_gained = it->second->size();
+      it = _inflight_tracker.erase(it);
       erased = true;
     } else if (seq <= (header_ack + 64)) {
       u64 offset = (seq - (header_ack + 1));
       if ((ack_bit_map >> offset) & 1) {
         // Ack was set
         size_gained = it->second->size();
-        std::cout << "acknowledged" << std::endl;
         it = _inflight_tracker.erase(it);
         erased = true;
       } else {
@@ -110,9 +100,6 @@ void Connection::update_in_flight_tracker(u64 header_ack, u64 ack_bit_map) {
       }
       if (_inflight_bytes + MSS <= _congestion_window) {
         _congestion_window += MSS;
-        std::cout << "[slow-start] ACKed seq=" << seq
-                  << " cwnd now = " << _congestion_window
-                  << " inflight = " << _inflight_bytes << std::endl;
       }
 
       u64 sample_rtt =
@@ -127,11 +114,6 @@ void Connection::update_in_flight_tracker(u64 header_ack, u64 ack_bit_map) {
                       GAIN * (std::max(sample_rtt, _rtt_smoothed) -
                               std::min(sample_rtt, _rtt_smoothed));
       _RTO = _rtt_smoothed + 4 * _rtt_variance;
-
-      std::cout << "_rtt_smoothed => " << _rtt_smoothed << "\n"
-                << "_rtt_variance => " << _rtt_variance << "\n"
-                << "_RTO => " << _RTO << "sample_rtt => " << sample_rtt
-                << std::endl;
     }
   }
 }
@@ -151,7 +133,7 @@ int Connection::deserialize_all(
 }
 
 Connection::Connection(u16 local_port, u16 remote_port)
-    : _local_port(local_port), _remote_port(remote_port), _conn_id(UINT32_MAX),
+    : _running(true), _local_port(local_port), _remote_port(remote_port), _conn_id(UINT32_MAX),
       _seq_to_send(0), _last_contiguous_ack(0), _longest_contiguous_sequence(0),
       _rtt_smoothed(0), _rtt_variance(0), _RTO(0), _congestion_window(MSS * 4),
       _slow_start_threshold(UINT64_MAX), _inflight_bytes(0) {
@@ -257,16 +239,13 @@ void Connection::send(const std::vector<u8> &data) {
 }
 
 void Connection::flush_send_queue() {
-  for (;;) {
+  while (_running) {
     // for now busy waiting, but in future use condition variable
     if (_inflight_bytes >= _congestion_window) {
-      std::cout << "[cwnd limit] inflight=" << _inflight_bytes
-                << " >= cwnd=" << _congestion_window << " waiting for acks\n";
-      return;
+      continue;
     }
-
     if (_send_queue.empty()) {
-      return;
+      continue;
     }
 
     auto p = _send_queue.front();
@@ -299,6 +278,7 @@ void Connection::flush_send_queue() {
     sendto(_sockfd, buf.data(), buf.size(), 0,
            reinterpret_cast<struct sockaddr *>(&_remote_addr),
            sizeof(_remote_addr));
+    std::this_thread::sleep_for(std::chrono::nanoseconds(_rtt_smoothed / MSS));
 
     _inflight_bytes += p->size();
 
@@ -319,10 +299,10 @@ void Connection::start() {
 }
 
 void Connection::receive_packets() {
-  for (;;) {
+  while (_running) {
     std::vector<Packet> ret;
 
-    _nfds = epoll_wait(_epoll_fd, _events, MAX_EVENTS, -1);
+    _nfds = epoll_wait(_epoll_fd, _events, MAX_EVENTS, 100);
     if (_nfds == -1) {
       throw std::runtime_error(
           std::format("epoll wait experienced an error: {}", _nfds));
@@ -386,15 +366,16 @@ void Connection::receive_packets() {
         send_empty_ack();
 
         std::vector<u8> v(ptr, ptr + payload_size);
-        std::cout << "[RECV] seq = " << seq << "  ack = " << last_contiguous_ack
-                  << "  bitmap = 0x" << std::hex << ack_bit_map << std::dec
-                  << "  my_last_ack = " << _last_contiguous_ack
-                  << "  ooo size = " << _received_ooo_packet_nums.size()
-                  << std::endl;
         ret.push_back(Packet(v, h));
       }
     }
   }
+}
+
+u64 Connection::get_last_contiguous_ack() {
+
+    std::cout << "what the heck: " << _last_contiguous_ack << std::endl;
+    return _last_contiguous_ack;
 }
 
 std::ostream &operator<<(std::ostream &os, const Header &h) {
@@ -406,6 +387,15 @@ std::ostream &operator<<(std::ostream &os, const Header &h) {
 std::ostream &operator<<(std::ostream &os, const Packet &p) {
   os << p._header << ", payload_size=" << p.size() - HEADER_SIZE;
   return os;
+}
+
+void Connection::stop() {
+    _running = false;
+
+    if (_read_fut.valid()) _read_fut.wait();
+    if (_send_fut.valid()) _send_fut.wait();
+
+    close(_sockfd);
 }
 
 // bytes_in_flight ≤ cwnd must always hold

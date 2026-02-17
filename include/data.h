@@ -93,6 +93,7 @@ public:
 
 class Connection {
   // Socket Things
+  std::atomic<bool> _running;
   int _sockfd;
   int _epoll_fd, _nfds;
   struct epoll_event _events[MAX_EVENTS];
@@ -120,8 +121,8 @@ class Connection {
   std::queue<std::shared_ptr<Packet>> _send_queue;
   std::array<u8, 1400> _read_buf;
 
-    std::future<void> _read_fut;
-    std::future<void> _send_fut;
+  std::future<void> _read_fut;
+  std::future<void> _send_fut;
 
   // Deleting because we don't want deep copies
   Connection(const Connection &) = delete;
@@ -155,11 +156,14 @@ class Connection {
 
   void receive_packets();
 
-
 public:
+  u64 get_last_contiguous_ack();
+
   Connection(u16 local_port, u16 remote_port);
 
   void start();
+
+  void stop();
 
   void send(const std::vector<u8> &data);
 };
