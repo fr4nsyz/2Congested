@@ -17,7 +17,7 @@ int main(int argc, char *argv[]) {
 
   std::future<void> f = std::async(std::launch::async, &Connection::start, &c);
 
-  for (int i = 0; i < 40; ++i) {
+  for (int i = 0; i < 10000; ++i) {
     c.send(v);
   }
 
