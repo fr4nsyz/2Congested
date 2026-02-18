@@ -3,6 +3,7 @@
 #include <cstdlib>
 #include <future>
 #include <memory>
+#include <mutex>
 #include <vector>
 
 Header::Header(PacketType type, u32 conn_id, u64 seq, u64 ack, u64 ack_bit_map,
@@ -67,6 +68,20 @@ void Connection::update_ack_states(u64 seq) {
 
 void Connection::update_in_flight_tracker(u64 header_ack, u64 ack_bit_map) {
   for (auto it = _inflight_tracker.begin(); it != _inflight_tracker.end();) {
+
+    auto delta = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                     std::chrono::steady_clock::now().time_since_epoch())
+                     .count() -
+                 it->second->_header._timestamp_ns;
+
+    if (_RTO > 0 && delta >= _RTO) {
+
+      std::cout << "delta: " << delta << "_RTO: " << _RTO << std::endl;
+      _inflight_bytes -= it->second->size();
+      _inflight_tracker.erase(it);
+      // Should really be doing retransmission here but just testing
+    }
+
     u64 seq = it->first;
 
     std::shared_ptr<Packet> currPacket = it->second;
@@ -133,10 +148,11 @@ int Connection::deserialize_all(
 }
 
 Connection::Connection(u16 local_port, u16 remote_port)
-    : _running(true), _local_port(local_port), _remote_port(remote_port), _conn_id(UINT32_MAX),
-      _seq_to_send(0), _last_contiguous_ack(0), _longest_contiguous_sequence(0),
-      _rtt_smoothed(0), _rtt_variance(0), _RTO(0), _congestion_window(MSS * 4),
-      _slow_start_threshold(UINT64_MAX), _inflight_bytes(0) {
+    : _running(true), _local_port(local_port), _remote_port(remote_port),
+      _conn_id(UINT32_MAX), _seq_to_send(0), _last_contiguous_ack(0),
+      _longest_contiguous_sequence(0), _rtt_smoothed(0), _rtt_variance(0),
+      _RTO(0), _congestion_window(MSS * 4), _slow_start_threshold(UINT64_MAX),
+      _inflight_bytes(0) {
   // _conn_id is set to UINT32_MAX at the beginnning just to create an
   // invalid starting state. It gets updated in the init_handshake
   // method to return the client programmer's Connection with a _conn_id
@@ -240,14 +256,17 @@ void Connection::send(const std::vector<u8> &data) {
 
 void Connection::flush_send_queue() {
   while (_running) {
-    // for now busy waiting, but in future use condition variable
-    if (_inflight_bytes >= _congestion_window) {
-      continue;
-    }
-    if (_send_queue.empty()) {
-      continue;
-    }
+    std::unique_lock<std::mutex> l(_send_mtx);
 
+    _send_cv.wait(l, [this] {
+      return !_running ||
+             !(_send_queue.empty() || _inflight_bytes >= _congestion_window);
+    });
+
+    if (!_running)
+      break;
+
+    // for now busy waiting, but in future use condition variable
     auto p = _send_queue.front();
 
     // std::cout << "[SEND] seq = " << p->_header << std::endl;
@@ -288,7 +307,6 @@ void Connection::flush_send_queue() {
 
 void Connection::start() {
   using clock = std::chrono::steady_clock;
-
   std::cout << "called start" << std::endl;
   _read_fut =
       std::async(std::launch::async, &Connection::receive_packets, this);
@@ -372,11 +390,7 @@ void Connection::receive_packets() {
   }
 }
 
-u64 Connection::get_last_contiguous_ack() {
-
-    std::cout << "what the heck: " << _last_contiguous_ack << std::endl;
-    return _last_contiguous_ack;
-}
+u64 Connection::get_last_contiguous_ack() { return _last_contiguous_ack; }
 
 std::ostream &operator<<(std::ostream &os, const Header &h) {
   os << "Header(seq=" << h._seq << ", timestamp=" << h._timestamp_ns
@@ -390,12 +404,23 @@ std::ostream &operator<<(std::ostream &os, const Packet &p) {
 }
 
 void Connection::stop() {
-    _running = false;
+  _running = false;
 
-    if (_read_fut.valid()) _read_fut.wait();
-    if (_send_fut.valid()) _send_fut.wait();
+  _send_cv.notify_all();
 
-    close(_sockfd);
+  std::cout << "called stop\n";
+
+  if (_read_fut.valid())
+    _read_fut.wait();
+  if (_send_fut.valid())
+    _send_fut.wait();
+
+  std::cout << "last: " << get_last_contiguous_ack() << std::endl;
+  std::cout << "cwnd: " << _congestion_window << std::endl;
+  std::cout << "inflight: " << _inflight_bytes << std::endl;
+  std::cout << "ack bitmap: " << build_ack_bit_map() << std::endl;
+
+  close(_sockfd);
 }
 
 // bytes_in_flight ≤ cwnd must always hold

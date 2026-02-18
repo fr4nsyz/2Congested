@@ -6,7 +6,6 @@ Remote: 3000:3000
 conn_id: 4294967295
 ==================
 called start
-last: what the heck: 0
-0
 called receive_packets
 called flush_send_queue
+delta: 2236587_RTO: 2235958

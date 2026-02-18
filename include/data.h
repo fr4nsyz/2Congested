@@ -4,6 +4,7 @@
 #include <atomic>
 #include <chrono>
 #include <cmath>
+#include <condition_variable>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -94,6 +95,8 @@ public:
 class Connection {
   // Socket Things
   std::atomic<bool> _running;
+  std::mutex _send_mtx;
+  std::condition_variable _send_cv;
   int _sockfd;
   int _epoll_fd, _nfds;
   struct epoll_event _events[MAX_EVENTS];

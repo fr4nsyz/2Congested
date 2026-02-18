@@ -1,4 +1,13 @@
 #include "../include/data.h"
+#include <future>
+#include <unistd.h>
+void stop_after_timeout(int timeout, Connection *c) {
+  sleep(timeout);
+  std::cout << "after timeout" << std::endl;
+  c->stop();
+
+  std::cout << "after call to stop" << std::endl;
+}
 
 int main(int argc, char *argv[]) {
 
@@ -17,11 +26,12 @@ int main(int argc, char *argv[]) {
 
   std::future<void> f = std::async(std::launch::async, &Connection::start, &c);
 
+  std::future<void> timeout =
+      std::async(std::launch::async, stop_after_timeout, 10, &c);
+
   for (int i = 0; i < 200; ++i) {
     c.send(v);
   }
-
-  std::cout << "last: " << c.get_last_contiguous_ack() << std::endl;
 
   f.get();
 }
